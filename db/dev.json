@@ -223,17 +223,6 @@
       "createdAt": "2026-08-15T10:00:00.000Z"
     },
     {
-      "id": "dev-bt-loan5",
-      "bankId": "dev-b2",
-      "date": "2026-08-20",
-      "type": "loan_out",
-      "amount": 4000,
-      "notes": "Paid back part of loan",
-      "linkedLoanTxId": "dev-t5",
-      "linkedTransferId": null,
-      "createdAt": "2026-08-20T10:00:00.000Z"
-    },
-    {
       "id": "mt9s66vc-ymtr8vh",
       "bankId": "dev-b1",
       "date": "2026-08-26",
@@ -254,18 +243,6 @@
       "linkedLoanTxId": null,
       "linkedTransferId": null,
       "createdAt": "2026-08-26T07:37:18.245Z"
-    },
-    {
-      "id": "mt9t57l8-4a6gtgx",
-      "bankId": "dev-b1",
-      "date": "2026-08-26",
-      "type": "loan_in",
-      "amount": 35110,
-      "notes": "",
-      "linkedLoanTxId": "mt9t57l8-h5uw3gw",
-      "linkedTransferId": null,
-      "linkedExpenseId": null,
-      "createdAt": "2026-08-26T08:04:05.420Z"
     },
     {
       "id": "dev-bt-exp1",
@@ -326,6 +303,30 @@
       "linkedTransferId": null,
       "linkedExpenseId": "mt9uzukf-vsn0ly6",
       "createdAt": "2026-08-26T08:55:54.495Z"
+    },
+    {
+      "id": "mt9y53gl-8cf0wqq",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "loan_in",
+      "amount": 35110,
+      "notes": "",
+      "linkedLoanTxId": "mt9t57l8-h5uw3gw",
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-26T10:23:58.149Z"
+    },
+    {
+      "id": "mt9y8g0l-dd7trkr",
+      "bankId": "dev-b2",
+      "date": "2026-08-20",
+      "type": "loan_out",
+      "amount": 4000,
+      "notes": "Paid back part of loan",
+      "linkedLoanTxId": "dev-t5",
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-26T10:26:34.389Z"
     }
   ],
   "places": [

@@ -281,8 +281,17 @@ function applyHash() {
 
 window.addEventListener('hashchange', applyHash);
 
+// render() fully rebuilds #view-root on every add/edit/delete, not just on
+// tab switches — so the .view entrance animation (style.css) is only allowed
+// to play when the visible screen actually changed (view or bank-detail
+// target); a same-screen data refresh gets a plain, animation-free swap.
+let lastRenderKey = null;
+
 function render() {
   const main = $('#view-root');
+  const renderKey = `${currentView}/${viewingBankId || ''}`;
+  main.classList.toggle('animate-view', renderKey !== lastRenderKey);
+  lastRenderKey = renderKey;
   if (currentView === 'dashboard') main.innerHTML = renderDashboard();
   else if (currentView === 'transactions') main.innerHTML = renderTransactions();
   else if (currentView === 'profiles') main.innerHTML = renderProfiles();
