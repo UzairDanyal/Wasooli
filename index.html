@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="connect-screen"></div>
+
+<div id="app" class="hidden">
+  <div class="sidebar">
+    <div class="brand">Wasooli Bhai</div>
+    <nav>
+      <button data-view="dashboard" class="active">Dashboard</button>
+      <button data-view="transactions">Transactions</button>
+      <button data-view="profiles">Profiles</button>
+      <button data-view="banks">Banks</button>
+      <button data-view="export">Export &amp; Backup</button>
+    </nav>
+    <div class="sidebar-footer" id="storage-mode"></div>
+  </div>
+  <main>
+    <div id="view-root"></div>
+  </main>
+</div>
+
+<script src="storage.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
