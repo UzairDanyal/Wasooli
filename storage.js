@@ -102,7 +102,10 @@ function writeLocal(data) {
 // ---- public API ----
 
 // Attempts silent restore (previously granted file handle, or localStorage).
-// Returns { connected: boolean, mode }
+// Permission for a remembered handle resets to 'prompt' after a browser
+// restart and re-requesting it requires a user gesture, so this only ever
+// checks the current status (queryPermission) — never requests here.
+// Returns { connected: boolean, mode, needsReconnect?, fileName? }
 async function init() {
   if (!supportsFS) {
     cache = readLocal();
@@ -110,16 +113,35 @@ async function init() {
   }
   try {
     const handle = await idbGet(HANDLE_KEY);
-    if (handle && (await ensurePermission(handle))) {
+    if (handle) {
+      const granted = (await handle.queryPermission({ mode: 'readwrite' })) === 'granted';
+      if (granted) {
+        fileHandle = handle;
+        cache = await readHandle(handle);
+        mode = 'fs';
+        return { connected: true, mode: 'fs' };
+      }
       fileHandle = handle;
-      cache = await readHandle(handle);
-      mode = 'fs';
-      return { connected: true, mode: 'fs' };
+      return { connected: false, mode: 'fs', needsReconnect: true, fileName: handle.name };
     }
   } catch (e) {
     console.warn('Could not restore previous file handle', e);
   }
   return { connected: false, mode: 'fs' };
+}
+
+// Re-requests permission for the remembered handle. Must be called from a
+// click handler (user gesture) — that's the one thing init() can't do.
+async function reconnect() {
+  if (!fileHandle) throw new Error('No remembered file to reconnect to.');
+  if (!(await ensurePermission(fileHandle))) throw new Error('Permission denied.');
+  cache = await readHandle(fileHandle);
+  mode = 'fs';
+  return cache;
+}
+
+function getFileName() {
+  return fileHandle ? fileHandle.name : null;
 }
 
 async function openExisting() {
@@ -311,8 +333,10 @@ window.Storage = {
   init,
   openExisting,
   createNew,
+  reconnect,
   forget,
   getMode,
+  getFileName,
   listProfiles,
   addProfile,
   updateProfile,

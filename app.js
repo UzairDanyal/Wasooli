@@ -35,12 +35,37 @@ function toast(msg, isError = false) {
 // ---------------- Connect screen ----------------
 
 async function boot() {
-  const { connected, mode } = await Storage.init();
-  if (connected) {
+  const result = await Storage.init();
+  if (result.connected) {
     startApp();
+  } else if (result.needsReconnect) {
+    showReconnectScreen(result.fileName);
   } else {
     showConnectScreen();
   }
+}
+
+function showReconnectScreen(fileName) {
+  $('#connect-screen').classList.remove('hidden');
+  $('#app').classList.add('hidden');
+  $('#connect-screen').innerHTML = `
+    <div class="connect-card">
+      <h1>Loan Tracker</h1>
+      <p>Reconnect to <strong>${esc(fileName || 'your loan table')}</strong> to continue where you left off.</p>
+      <div class="connect-actions">
+        <button class="btn btn-primary" id="btn-reconnect">Reconnect</button>
+        <button class="btn" id="btn-use-different">Use a different file</button>
+      </div>
+    </div>`;
+  $('#btn-reconnect').onclick = async () => {
+    try {
+      await Storage.reconnect();
+      startApp();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+  $('#btn-use-different').onclick = () => showConnectScreen();
 }
 
 function showConnectScreen() {
@@ -93,8 +118,14 @@ function showConnectScreen() {
 function startApp() {
   $('#connect-screen').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  $('#storage-mode').textContent = Storage.getMode() === 'fs' ? 'Saving to local file' : 'Saving to browser storage';
+  updateStorageModeFooter();
   render();
+}
+
+function updateStorageModeFooter() {
+  const fileName = Storage.getFileName?.();
+  $('#storage-mode').textContent =
+    Storage.getMode() === 'fs' ? `Saving to ${fileName || 'local file'}` : 'Saving to browser storage';
 }
 
 // ---------------- Navigation ----------------
@@ -115,6 +146,7 @@ function render() {
   else if (currentView === 'profiles') main.innerHTML = renderProfiles();
   else if (currentView === 'banks') main.innerHTML = renderBanks();
   else if (currentView === 'export') main.innerHTML = renderExport();
+  else if (currentView === 'settings') main.innerHTML = renderSettings();
   attachViewHandlers();
 }
 
@@ -342,6 +374,30 @@ function renderExport() {
     </div>`;
 }
 
+// ---------------- Settings ----------------
+
+function renderSettings() {
+  const mode = Storage.getMode();
+  const fileName = Storage.getFileName?.();
+
+  return `
+    <div class="view">
+      <h2>Settings</h2>
+      <p class="view-sub">Manage where your loan data is stored.</p>
+      <div class="card">
+        <p><strong>Current storage:</strong> ${mode === 'fs' ? `Local file — ${esc(fileName || 'unknown')}` : 'Browser local storage'}</p>
+        ${
+          Storage.supportsFS
+            ? `<div class="connect-actions" style="margin-top:12px;">
+                <button class="btn btn-primary" id="btn-settings-new">Create new loan table</button>
+                <button class="btn" id="btn-settings-open">Open a different loan table</button>
+              </div>`
+            : `<p class="connect-note">Your browser doesn't support saving directly to a file. Use Export &amp; Backup regularly to avoid losing data.</p>`
+        }
+      </div>
+    </div>`;
+}
+
 // ---------------- Handlers ----------------
 
 function attachViewHandlers() {
@@ -508,6 +564,28 @@ function attachViewHandlers() {
       }
     })
   );
+
+  $('#btn-settings-new')?.addEventListener('click', async () => {
+    try {
+      await Storage.createNew();
+      toast('Switched to a new loan table.');
+      updateStorageModeFooter();
+      render();
+    } catch (e) {
+      if (e.name !== 'AbortError') toast(e.message, true);
+    }
+  });
+
+  $('#btn-settings-open')?.addEventListener('click', async () => {
+    try {
+      await Storage.openExisting();
+      toast('Switched loan table.');
+      updateStorageModeFooter();
+      render();
+    } catch (e) {
+      if (e.name !== 'AbortError') toast(e.message, true);
+    }
+  });
 
   $('#btn-export-json')?.addEventListener('click', () => downloadFile('loan-table.json', Storage.exportJSON(), 'application/json'));
   $('#btn-export-csv')?.addEventListener('click', () => downloadFile('transactions.csv', Storage.exportCSV(), 'text/csv'));
