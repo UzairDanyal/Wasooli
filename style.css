@@ -241,9 +241,6 @@ input:focus, select:focus, textarea:focus {
    default stretch makes the shorter card grow to match the taller one. */
 .list-scroll { max-height: 280px; overflow-y: auto; }
 
-.card-disabled { opacity: 0.55; filter: grayscale(0.3); }
-.card-disabled input, .card-disabled button { cursor: not-allowed; }
-
 /* ---- expense overview (pie chart) ---- */
 .overview-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 .overview-total { font-size: 30px; font-weight: 700; line-height: 1.15; }

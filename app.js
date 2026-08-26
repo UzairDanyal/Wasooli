@@ -9,7 +9,7 @@ const TYPE_LABELS = {
 
 const BANK_TX_LABELS = {
   deposit: 'Deposit',
-  withdrawal: 'Withdrawal',
+  withdrawal: 'Withdraw / Transfer',
   transfer_in: 'Transfer in',
   transfer_out: 'Transfer out',
   loan_in: 'Loan — money in',
@@ -593,31 +593,23 @@ function renderBankDetail(bankId) {
           </form>
         </div>
 
-        <!--
-          Withdraw is intentionally disabled: unlike a deposit, money leaving
-          a bank should always be *for* something (an expense or a loan), or
-          the bank balance and the Expenses/Loans totals silently drift apart.
-          Record outgoing money as an Expense (or a loan "lent"/"repayment
-          made") instead — that keeps the bank ledger and the reason for the
-          money leaving in sync. Re-enable only if a use case turns up that
-          isn't better served by one of those two.
-        -->
-        <div class="card card-disabled" style="flex:1; min-width:220px;" title="Disabled — withdrawals aren't tied to an expense or loan, which can make the bank balance drift out of sync. Record money leaving this account as an Expense (or a loan) instead.">
-          <h3 style="margin-top:0;">Withdraw balance</h3>
-          <p class="connect-note" style="margin:0 0 12px;">Disabled — use Expenses (or a loan entry) to record money leaving this account, so it stays tied to what it was for.</p>
+        <div class="card" style="flex:1; min-width:220px;">
+          <h3 style="margin-top:0;">Withdraw / Transfer</h3>
+          <p class="connect-note" style="margin:0 0 12px;">Money leaving this account with no linked expense or loan — e.g. cash withdrawn or sent outside the app.</p>
           <form id="bank-withdraw-form" data-bank-id="${bankId}">
             <div class="form-grid">
-              <div class="field"><label>Date</label><input type="date" name="date" value="${todayISO()}" disabled></div>
-              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" placeholder="0.00" disabled></div>
-              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" disabled></div>
+              <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
+              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
+              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
             </div>
-            <button class="btn btn-primary" type="submit" disabled title="Withdraw">${ICON_ADD} Withdraw</button>
+            <button class="btn btn-primary" type="submit" title="Withdraw / Transfer">${ICON_ADD} Withdraw / Transfer</button>
           </form>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:20px;">
-        <h3 style="margin-top:0;">Transfer to another bank</h3>
+        <h3 style="margin-top:0;">Interbank Transfer</h3>
+        <p class="connect-note" style="margin:0 0 12px;">Move money between your own accounts — pick which of your other banks it's going to.</p>
         <form id="bank-transfer-form" data-bank-id="${bankId}">
           <div class="form-grid">
             <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
