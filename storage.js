@@ -22,6 +22,20 @@ function genId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// Every UI write path coerces amount to a Number before it reaches cache, but
+// data loaded from disk/localStorage/import comes from outside that path —
+// a hand-edited or externally-produced file could carry a quoted amount
+// (e.g. "500"), which would silently corrupt sums via string concatenation
+// (0 + "500" === "0500") wherever getBalance/getBankBalance use `+`.
+function coerceAmounts(data) {
+  for (const key of ['transactions', 'bankTransactions', 'expenses']) {
+    for (const item of data[key] || []) {
+      if (item && typeof item.amount !== 'number') item.amount = Number(item.amount) || 0;
+    }
+  }
+  return data;
+}
+
 // ---- tiny IndexedDB helper, just enough to remember the file handle ----
 function idbOpen() {
   return new Promise((resolve, reject) => {
@@ -81,7 +95,7 @@ async function readHandle(handle) {
   if (!text.trim()) return emptyData();
   try {
     const parsed = JSON.parse(text);
-    return { ...emptyData(), ...parsed };
+    return coerceAmounts({ ...emptyData(), ...parsed });
   } catch (e) {
     throw new Error('data.json is not valid JSON — fix or replace it, then reload.');
   }
@@ -97,7 +111,7 @@ function readLocal() {
   const raw = localStorage.getItem(LOCAL_KEY);
   if (!raw) return emptyData();
   try {
-    return { ...emptyData(), ...JSON.parse(raw) };
+    return coerceAmounts({ ...emptyData(), ...JSON.parse(raw) });
   } catch {
     return emptyData();
   }
@@ -317,7 +331,7 @@ function reconcileLoanLinkedBankTx() {
   const linkedIds = new Set(cache.bankTransactions.filter((bt) => bt.linkedLoanTxId).map((bt) => bt.linkedLoanTxId));
   let changed = false;
   for (const tx of cache.transactions) {
-    if (tx.bankId && !linkedIds.has(tx.id)) {
+    if (tx.bankId && !linkedIds.has(tx.id) && bankTxTypeForLoan(tx.type)) {
       addLinkedBankTx(tx);
       changed = true;
     }
@@ -592,7 +606,7 @@ function exportCSV() {
 
 async function importJSON(jsonText) {
   const parsed = JSON.parse(jsonText);
-  cache = { ...emptyData(), ...parsed };
+  cache = coerceAmounts({ ...emptyData(), ...parsed });
   reconcileLoanLinkedBankTx();
   await persist();
   return cache;

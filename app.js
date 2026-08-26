@@ -40,6 +40,45 @@ const money = (n) => {
   return `${n < 0 ? '-' : ''}${abs}`;
 };
 
+// Indian/Pakistani numbering (lac, crore) spelled out — used as a hover
+// tooltip on dashboard figures since the grouped digits alone are hard to
+// eyeball at a glance (e.g. is 4,800,000 forty-eight lac or four crore?).
+const ONES_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS_WORDS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function twoDigitWords(n) {
+  if (n < 20) return ONES_WORDS[n];
+  const t = Math.floor(n / 10);
+  const r = n % 10;
+  return TENS_WORDS[t] + (r ? `-${ONES_WORDS[r]}` : '');
+}
+
+function threeDigitWords(n) {
+  if (n === 0) return '';
+  const h = Math.floor(n / 100);
+  const r = n % 100;
+  let out = h ? `${ONES_WORDS[h]} Hundred` : '';
+  if (r) out += (out ? ' ' : '') + twoDigitWords(r);
+  return out;
+}
+
+function moneyWords(n) {
+  let num = Math.round(Math.abs(n));
+  if (num === 0) return 'Zero';
+  const crore = Math.floor(num / 1e7); num %= 1e7;
+  const lac = Math.floor(num / 1e5); num %= 1e5;
+  const thousand = Math.floor(num / 1e3); num %= 1e3;
+  const rest = num;
+
+  const parts = [];
+  if (crore) parts.push(`${threeDigitWords(crore)} Crore`);
+  if (lac) parts.push(`${twoDigitWords(lac)} Lac`);
+  if (thousand) parts.push(`${twoDigitWords(thousand)} Thousand`);
+  if (rest) parts.push(threeDigitWords(rest));
+
+  return (n < 0 ? '- ' : '') + parts.join(' ');
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -275,7 +314,7 @@ function renderDashboard() {
           return `
           <div class="balance-card ${cls}">
             <div class="name">${esc(profile.name)}</div>
-            <div class="amount">${money(Math.abs(balance))}</div>
+            <div class="amount" title="${moneyWords(balance)}">${money(Math.abs(balance))}</div>
             <div class="status">${status}</div>
           </div>`;
         })
@@ -289,8 +328,8 @@ function renderDashboard() {
 
       <h3 class="dash-section-title">Loan</h3>
       <div class="summary-row">
-        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value">${money(owedToMe)}</div></div>
-        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value">${money(iOwe)}</div></div>
+        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${money(owedToMe)}</div></div>
+        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value" title="${moneyWords(iOwe)}">${money(iOwe)}</div></div>
       </div>
       <div class="balance-grid">${cards}</div>
 
@@ -298,15 +337,15 @@ function renderDashboard() {
 
       <h3 class="dash-section-title">Bank</h3>
       <div class="summary-row">
-        <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value">${money(totalBankBalance)}</div></div>
-        <div class="summary-card" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today."><div class="label">Net position</div><div class="value">${money(totalBankBalance + owedToMe - iOwe)}</div></div>
+        <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${money(totalBankBalance)}</div></div>
+        <div class="summary-card" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today."><div class="label">Net position</div><div class="value" title="${moneyWords(totalBankBalance + owedToMe - iOwe)}">${money(totalBankBalance + owedToMe - iOwe)}</div></div>
       </div>
 
       <hr class="dash-divider">
 
       <h3 class="dash-section-title">Expense</h3>
       <div class="summary-row">
-        <div class="summary-card red" title="Total expenses logged so far this calendar month."><div class="label">Expenses this month</div><div class="value">${money(expensesThisMonth)}</div></div>
+        <div class="summary-card red" title="Total expenses logged so far this calendar month."><div class="label">Expenses this month</div><div class="value" title="${moneyWords(expensesThisMonth)}">${money(expensesThisMonth)}</div></div>
       </div>
     </div>`;
 }
@@ -438,7 +477,7 @@ function renderProfiles() {
           <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Balance</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${paginationBar('profiles', total, page, totalPages)}
+        <div id="profile-pagination">${paginationBar('profiles', total, page, totalPages)}</div>
       </div>
     </div>`;
 }
@@ -586,7 +625,7 @@ function renderBankDetail(bankId) {
           <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${paginationBar('bankDetail', entryTotal, entryPage, entryTotalPages)}
+        <div id="bankDetail-pagination">${paginationBar('bankDetail', entryTotal, entryPage, entryTotalPages)}</div>
       </div>
     </div>`;
 }
@@ -900,21 +939,24 @@ function attachViewHandlers() {
     render();
   });
 
-  $$('[data-action="edit-tx"]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      editingTxId = btn.dataset.id;
+  // Delegated on the stable #tx-rows tbody — applyFilters() below replaces
+  // its innerHTML on every search/filter/pagination change, which would
+  // detach listeners bound directly to the row buttons.
+  $('#tx-rows')?.addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-action="edit-tx"]');
+    if (editBtn) {
+      editingTxId = editBtn.dataset.id;
       render();
-    })
-  );
-
-  $$('[data-action="delete-tx"]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+      return;
+    }
+    const deleteBtn = e.target.closest('[data-action="delete-tx"]');
+    if (deleteBtn) {
       if (!confirm('Delete this transaction?')) return;
-      await Storage.deleteTransaction(btn.dataset.id);
+      await Storage.deleteTransaction(deleteBtn.dataset.id);
       toast('Transaction deleted.');
       render();
-    })
-  );
+    }
+  });
 
   const filterSearch = $('#filter-search');
   const filterProfile = $('#filter-profile');
@@ -1033,29 +1075,33 @@ function attachViewHandlers() {
   };
   bankSearch?.addEventListener('input', () => applyBankFilters(true));
 
-  $$('[data-action="edit-bank"]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      editingBankId = btn.dataset.id;
+  // Delegated on the stable #bank-rows tbody — applyBankFilters() above
+  // replaces its innerHTML on every search/pagination change, which would
+  // detach listeners bound directly to the row buttons.
+  $('#bank-rows')?.addEventListener('click', async (e) => {
+    const viewBtn = e.target.closest('[data-action="view-bank"]');
+    if (viewBtn) {
+      goToBank(viewBtn.dataset.id);
+      return;
+    }
+    const editBtn = e.target.closest('[data-action="edit-bank"]');
+    if (editBtn) {
+      editingBankId = editBtn.dataset.id;
       render();
-    })
-  );
-
-  $$('[data-action="delete-bank"]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+      return;
+    }
+    const deleteBtn = e.target.closest('[data-action="delete-bank"]');
+    if (deleteBtn) {
       if (!confirm('Delete this bank?')) return;
       try {
-        await Storage.deleteBank(btn.dataset.id);
+        await Storage.deleteBank(deleteBtn.dataset.id);
         toast('Bank deleted.');
         render();
       } catch (err) {
         toast(err.message, true);
       }
-    })
-  );
-
-  $$('[data-action="view-bank"]').forEach((btn) =>
-    btn.addEventListener('click', () => goToBank(btn.dataset.id))
-  );
+    }
+  });
 
   $('#btn-back-to-banks')?.addEventListener('click', () => setView('banks'));
 
@@ -1379,23 +1425,32 @@ function attachViewHandlers() {
     else render();
   };
 
-  $$('.pagination-size').forEach((sel) =>
-    sel.addEventListener('change', () => {
+  // Delegated on each pagination bar's own wrapper (not #view-root — that
+  // node persists across every render() call, so a listener bound there
+  // would re-attach on every render() and accumulate instead of replacing).
+  // Each wrapper below is recreated fresh whenever its view (re)renders —
+  // for transactions/banks/expenses that also includes every live-filter
+  // innerHTML swap, which is exactly what orphaned a directly-bound listener.
+  ['tx-pagination', 'profile-pagination', 'bank-pagination', 'bankDetail-pagination', 'expense-pagination'].forEach((id) => {
+    const bar = $(`#${id}`);
+    if (!bar) return;
+    bar.addEventListener('change', (e) => {
+      const sel = e.target.closest('.pagination-size');
+      if (!sel) return;
       const key = sel.dataset.pageKey;
       pagination[key].pageSize = Number(sel.value);
       pagination[key].page = 1;
       refreshAfterPagination(key);
-    })
-  );
-
-  $$('[data-page-action]').forEach((btn) =>
-    btn.addEventListener('click', () => {
+    });
+    bar.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-page-action]');
+      if (!btn) return;
       const key = btn.dataset.pageKey;
       pagination[key].page += btn.dataset.pageAction === 'next' ? 1 : -1;
       if (pagination[key].page < 1) pagination[key].page = 1;
       refreshAfterPagination(key);
-    })
-  );
+    });
+  });
 }
 
 function downloadFile(filename, content, type) {
