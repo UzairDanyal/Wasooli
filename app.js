@@ -24,6 +24,23 @@ const ICON_DELETE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 const ICON_HISTORY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>';
 const ICON_ADD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 const ICON_SAVE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const ICON_REMIND = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+// Pakistani-style local numbers ("0300-1234567") need the country code for a
+// wa.me link; a number that already has one (or is some other country's,
+// entered with its own code) is left as-is — only a leading 0 gets swapped.
+function toWhatsAppNumber(contact) {
+  const digits = (contact || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return digits.startsWith('0') ? `92${digits.slice(1)}` : digits;
+}
+
+function reminderMessage(name, amount) {
+  const formatted = Math.round(amount).toLocaleString();
+  // *text* is WhatsApp's own bold-formatting syntax — rendered as bold once
+  // it lands in the chat, not literal asterisks.
+  return `Hi *${name}*, hope you're doing well! Just a friendly reminder that you currently owe PKR ${formatted}. Whenever it's convenient, please send it over. Thanks!\n\n*Sent via Konto*`;
+}
 
 // Logo mark — rounded badge + "K" monogram, same line-icon style as the ICON_* set above.
 const LOGO_MARK = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M9 6v12M9 12l6-6M9 12l6 6"/></svg>';
@@ -320,8 +337,12 @@ function renderDashboard() {
         .map(({ profile, balance }) => {
           const cls = balance > 0.004 ? 'owes-me' : balance < -0.004 ? 'i-owe' : 'settled';
           const status = balance > 0.004 ? 'owes you' : balance < -0.004 ? 'you owe' : 'settled up';
+          const remindBtn = balance > 0.004
+            ? `<button class="btn btn-sm btn-icon remind-btn" data-action="remind-profile" data-id="${profile.id}" title="Send WhatsApp reminder">${ICON_REMIND}</button>`
+            : '';
           return `
           <div class="balance-card ${cls}">
+            ${remindBtn}
             <div class="name">${esc(profile.name)}</div>
             <div class="amount" title="${moneyWords(balance)}">${money(Math.abs(balance))}</div>
             <div class="status">${status}</div>
@@ -906,6 +927,24 @@ function renderSettings() {
 // ---------------- Handlers ----------------
 
 function attachViewHandlers() {
+  $('.balance-grid')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="remind-profile"]');
+    if (!btn) return;
+    const profile = Storage.listProfiles().find((p) => p.id === btn.dataset.id);
+    if (!profile) return;
+    const number = toWhatsAppNumber(profile.contact);
+    if (!number) {
+      toast(`Add a phone number for ${profile.name} first.`, true);
+      return;
+    }
+    const balance = Storage.getBalance(profile.id);
+    // web.whatsapp.com/send opens WhatsApp Web directly with the chat and
+    // message pre-filled; wa.me instead shows an intermediate landing page
+    // ("Open app" / "Continue to WhatsApp Web") before getting there.
+    const url = `https://web.whatsapp.com/send?phone=${number}&text=${encodeURIComponent(reminderMessage(profile.name, balance))}`;
+    window.open(url, '_blank', 'noopener');
+  });
+
   const txForm = $('#tx-form');
   if (txForm) {
     txForm.addEventListener('submit', async (e) => {
