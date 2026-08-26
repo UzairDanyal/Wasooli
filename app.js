@@ -7,6 +7,15 @@ const TYPE_LABELS = {
   repayment_made: 'Repayment made',
 };
 
+const BANK_TX_LABELS = {
+  deposit: 'Deposit',
+  withdrawal: 'Withdrawal',
+  transfer_in: 'Transfer in',
+  transfer_out: 'Transfer out',
+  loan_in: 'Loan — money in',
+  loan_out: 'Loan — money out',
+};
+
 const money = (n) => {
   const abs = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${n < 0 ? '-' : ''}${abs}`;
@@ -19,6 +28,7 @@ let currentView = 'dashboard';
 let editingTxId = null;
 let editingProfileId = null;
 let editingBankId = null;
+let viewingBankId = null;
 
 function optionsHtml(items, selectedId) {
   return items.map((i) => `<option value="${i.id}" ${i.id === selectedId ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
@@ -135,6 +145,7 @@ function setView(view) {
   editingTxId = null;
   editingProfileId = null;
   editingBankId = null;
+  viewingBankId = null;
   $$('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   render();
 }
@@ -156,6 +167,7 @@ function renderDashboard() {
   const balances = Storage.getAllBalances();
   const owedToMe = balances.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
   const iOwe = balances.filter((b) => b.balance < 0).reduce((s, b) => s + -b.balance, 0);
+  const totalBankBalance = Storage.getAllBankBalances().reduce((s, b) => s + b.balance, 0);
 
   const cards = balances.length
     ? balances
@@ -181,6 +193,7 @@ function renderDashboard() {
         <div class="summary-card green"><div class="label">Owed to you</div><div class="value">${money(owedToMe)}</div></div>
         <div class="summary-card red"><div class="label">You owe</div><div class="value">${money(iOwe)}</div></div>
         <div class="summary-card"><div class="label">Net position</div><div class="value">${money(owedToMe - iOwe)}</div></div>
+        <div class="summary-card"><div class="label">Bank balance</div><div class="value">${money(totalBankBalance)}</div></div>
       </div>
       <div class="balance-grid">${cards}</div>
     </div>`;
@@ -318,27 +331,32 @@ function renderProfiles() {
 // ---------------- Banks ----------------
 
 function renderBanks() {
+  if (viewingBankId) return renderBankDetail(viewingBankId);
+
   const banks = Storage.listBanks();
   const editingBank = editingBankId ? banks.find((b) => b.id === editingBankId) : null;
   const rows = banks.length
     ? banks
-        .map(
-          (b) => `
+        .map((b) => {
+          const bal = Storage.getBankBalance(b.id);
+          return `
           <tr>
             <td>${esc(b.name)}</td>
+            <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}">${money(bal)}</td>
             <td style="white-space:nowrap;">
+              <button class="btn btn-sm" data-action="view-bank" data-id="${b.id}">History</button>
               <button class="btn btn-sm" data-action="edit-bank" data-id="${b.id}">Edit</button>
               <button class="btn btn-sm btn-danger" data-action="delete-bank" data-id="${b.id}">Delete</button>
             </td>
-          </tr>`
-        )
+          </tr>`;
+        })
         .join('')
-    : `<tr><td colspan="2"><div class="empty-state">No banks yet.</div></td></tr>`;
+    : `<tr><td colspan="3"><div class="empty-state">No banks yet.</div></td></tr>`;
 
   return `
     <div class="view">
       <h2>Banks</h2>
-      <p class="view-sub">Accounts used to send or receive money — picked from a dropdown when logging a transaction.</p>
+      <p class="view-sub">Accounts used to send or receive money — each one keeps its own balance and history.</p>
 
       <div class="card" style="margin-bottom:20px;">
         <form id="bank-form">
@@ -352,7 +370,90 @@ function renderBanks() {
 
       <div class="card">
         <table>
-          <thead><tr><th>Name</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Balance</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderBankDetail(bankId) {
+  const bank = Storage.listBanks().find((b) => b.id === bankId);
+  if (!bank) {
+    viewingBankId = null;
+    return renderBanks();
+  }
+
+  const balance = Storage.getBankBalance(bankId);
+  const otherBanks = Storage.listBanks().filter((b) => b.id !== bankId);
+  const toBankOptions = optionsHtml(otherBanks);
+  const entries = Storage.listBankTransactions(bankId);
+
+  const rows = entries.length
+    ? entries
+        .map((e) => {
+          const positive = ['deposit', 'transfer_in', 'loan_in'].includes(e.type);
+          const colorCls = positive ? 'type-borrowed' : 'type-lent';
+          return `
+          <tr>
+            <td>${formatDate(e.date)}</td>
+            <td><span class="pill type-${e.type}">${BANK_TX_LABELS[e.type]}</span></td>
+            <td class="${colorCls}">${positive ? '+' : '-'}${money(e.amount)}</td>
+            <td>${esc(e.notes || '')}${e.linkedLoanTxId ? ' <em>(from loan entry)</em>' : ''}</td>
+            <td style="white-space:nowrap;">${e.linkedLoanTxId ? '' : `<button class="btn btn-sm btn-danger" data-action="delete-bank-tx" data-id="${e.id}">Delete</button>`}</td>
+          </tr>`;
+        })
+        .join('')
+    : `<tr><td colspan="5"><div class="empty-state">No activity yet.</div></td></tr>`;
+
+  return `
+    <div class="view">
+      <button class="btn btn-sm" id="btn-back-to-banks" style="margin-bottom:16px;">&larr; All banks</button>
+      <h2>${esc(bank.name)}</h2>
+      <p class="view-sub">Balance: <strong>${money(balance)}</strong></p>
+
+      <div class="summary-row" style="margin-bottom:20px;">
+        <div class="card" style="flex:1; min-width:220px;">
+          <h3 style="margin-top:0;">Add balance</h3>
+          <form id="bank-deposit-form" data-bank-id="${bankId}">
+            <div class="form-grid">
+              <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
+              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
+              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Add balance</button>
+          </form>
+        </div>
+
+        <div class="card" style="flex:1; min-width:220px;">
+          <h3 style="margin-top:0;">Withdraw balance</h3>
+          <form id="bank-withdraw-form" data-bank-id="${bankId}">
+            <div class="form-grid">
+              <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
+              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
+              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Withdraw</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-top:0;">Transfer to another bank</h3>
+        <form id="bank-transfer-form" data-bank-id="${bankId}">
+          <div class="form-grid">
+            <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
+            <div class="field"><label>To bank</label><select name="toBankId" required>${otherBanks.length ? toBankOptions : '<option value="">Add another bank first</option>'}</select></div>
+            <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
+            <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
+          </div>
+          <button class="btn btn-primary" type="submit" ${otherBanks.length ? '' : 'disabled'}>Transfer</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -558,6 +659,92 @@ function attachViewHandlers() {
       try {
         await Storage.deleteBank(btn.dataset.id);
         toast('Bank deleted.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    })
+  );
+
+  $$('[data-action="view-bank"]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      viewingBankId = btn.dataset.id;
+      render();
+    })
+  );
+
+  $('#btn-back-to-banks')?.addEventListener('click', () => {
+    viewingBankId = null;
+    render();
+  });
+
+  const depositForm = $('#bank-deposit-form');
+  if (depositForm) {
+    depositForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(depositForm);
+      try {
+        await Storage.addBankDeposit({
+          bankId: depositForm.dataset.bankId,
+          date: fd.get('date'),
+          amount: fd.get('amount'),
+          notes: fd.get('notes'),
+        });
+        toast('Balance added.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  const withdrawForm = $('#bank-withdraw-form');
+  if (withdrawForm) {
+    withdrawForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(withdrawForm);
+      try {
+        await Storage.addBankWithdrawal({
+          bankId: withdrawForm.dataset.bankId,
+          date: fd.get('date'),
+          amount: fd.get('amount'),
+          notes: fd.get('notes'),
+        });
+        toast('Withdrawal recorded.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  const transferForm = $('#bank-transfer-form');
+  if (transferForm) {
+    transferForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(transferForm);
+      try {
+        await Storage.transferFunds({
+          fromBankId: transferForm.dataset.bankId,
+          toBankId: fd.get('toBankId'),
+          date: fd.get('date'),
+          amount: fd.get('amount'),
+          notes: fd.get('notes'),
+        });
+        toast('Transfer recorded.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  $$('[data-action="delete-bank-tx"]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this entry?')) return;
+      try {
+        await Storage.deleteBankTransaction(btn.dataset.id);
+        toast('Entry deleted.');
         render();
       } catch (err) {
         toast(err.message, true);

@@ -1,2 +1,4 @@
 loan-table.json
 .claude/
+db/*.json
+!db/dev.json

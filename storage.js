@@ -8,7 +8,7 @@ const DB_STORE = 'handles';
 const HANDLE_KEY = 'dataFileHandle';
 const LOCAL_KEY = 'loan-app-data';
 
-const emptyData = () => ({ profiles: [], banks: [], transactions: [] });
+const emptyData = () => ({ profiles: [], banks: [], transactions: [], bankTransactions: [] });
 
 function genId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -109,6 +109,7 @@ function writeLocal(data) {
 async function init() {
   if (!supportsFS) {
     cache = readLocal();
+    if (reconcileLoanLinkedBankTx()) await persist();
     return { connected: true, mode: 'local' };
   }
   try {
@@ -119,6 +120,7 @@ async function init() {
         fileHandle = handle;
         cache = await readHandle(handle);
         mode = 'fs';
+        if (reconcileLoanLinkedBankTx()) await persist();
         return { connected: true, mode: 'fs' };
       }
       fileHandle = handle;
@@ -137,6 +139,7 @@ async function reconnect() {
   if (!(await ensurePermission(fileHandle))) throw new Error('Permission denied.');
   cache = await readHandle(fileHandle);
   mode = 'fs';
+  if (reconcileLoanLinkedBankTx()) await persist();
   return cache;
 }
 
@@ -153,6 +156,7 @@ async function openExisting() {
   cache = await readHandle(handle);
   await idbSet(HANDLE_KEY, handle);
   mode = 'fs';
+  if (reconcileLoanLinkedBankTx()) await persist();
   return cache;
 }
 
@@ -235,9 +239,134 @@ async function updateBank(id, { name }) {
 }
 
 async function deleteBank(id) {
-  const inUse = cache.transactions.some((t) => t.bankId === id);
-  if (inUse) throw new Error('Cannot delete a bank used by existing transactions.');
+  const inUse = cache.bankTransactions.some((bt) => bt.bankId === id);
+  if (inUse) throw new Error('Cannot delete a bank with existing transactions. Remove them first.');
   cache.banks = cache.banks.filter((b) => b.id !== id);
+  await persist();
+}
+
+// -- Bank ledger --
+// Positive => money in. Negative => money out.
+function bankDelta(type, amount) {
+  if (type === 'deposit' || type === 'transfer_in' || type === 'loan_in') return amount;
+  if (type === 'withdrawal' || type === 'transfer_out' || type === 'loan_out') return -amount;
+  return 0;
+}
+
+// Which way a loan transaction moves cash through the bank it's tagged with.
+function bankTxTypeForLoan(loanType) {
+  if (loanType === 'lent' || loanType === 'repayment_made') return 'loan_out';
+  if (loanType === 'borrowed' || loanType === 'repayment_received') return 'loan_in';
+  return null;
+}
+
+function removeLinkedBankTx(loanTxId) {
+  cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.linkedLoanTxId !== loanTxId);
+}
+
+function addLinkedBankTx(loanTx) {
+  if (!loanTx.bankId) return;
+  const type = bankTxTypeForLoan(loanTx.type);
+  if (!type) return;
+  cache.bankTransactions.push({
+    id: genId(),
+    bankId: loanTx.bankId,
+    date: loanTx.date,
+    type,
+    amount: loanTx.amount,
+    notes: loanTx.notes || '',
+    linkedLoanTxId: loanTx.id,
+    linkedTransferId: null,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+// Backfills bank-ledger entries for loan transactions that had a bankId set
+// before this feature existed (or came from an import). Returns true if it
+// added anything, so the caller knows whether to persist.
+function reconcileLoanLinkedBankTx() {
+  const linkedIds = new Set(cache.bankTransactions.filter((bt) => bt.linkedLoanTxId).map((bt) => bt.linkedLoanTxId));
+  let changed = false;
+  for (const tx of cache.transactions) {
+    if (tx.bankId && !linkedIds.has(tx.id)) {
+      addLinkedBankTx(tx);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function listBankTransactions(bankId) {
+  return cache.bankTransactions
+    .filter((bt) => bt.bankId === bankId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
+}
+
+function getBankBalance(bankId) {
+  return cache.bankTransactions
+    .filter((bt) => bt.bankId === bankId)
+    .reduce((sum, bt) => sum + bankDelta(bt.type, bt.amount), 0);
+}
+
+function getAllBankBalances() {
+  return cache.banks.map((b) => ({ bank: b, balance: getBankBalance(b.id) }));
+}
+
+async function addBankDeposit({ bankId, date, amount, notes }) {
+  const entry = {
+    id: genId(),
+    bankId,
+    date,
+    type: 'deposit',
+    amount: Number(amount),
+    notes: notes?.trim() || '',
+    linkedLoanTxId: null,
+    linkedTransferId: null,
+    createdAt: new Date().toISOString(),
+  };
+  cache.bankTransactions.push(entry);
+  await persist();
+  return entry;
+}
+
+async function addBankWithdrawal({ bankId, date, amount, notes }) {
+  const entry = {
+    id: genId(),
+    bankId,
+    date,
+    type: 'withdrawal',
+    amount: Number(amount),
+    notes: notes?.trim() || '',
+    linkedLoanTxId: null,
+    linkedTransferId: null,
+    createdAt: new Date().toISOString(),
+  };
+  cache.bankTransactions.push(entry);
+  await persist();
+  return entry;
+}
+
+async function transferFunds({ fromBankId, toBankId, date, amount, notes }) {
+  if (fromBankId === toBankId) throw new Error('Choose two different banks to transfer between.');
+  const linkedTransferId = genId();
+  const trimmedNotes = notes?.trim() || '';
+  const amt = Number(amount);
+  cache.bankTransactions.push(
+    { id: genId(), bankId: fromBankId, date, type: 'transfer_out', amount: amt, notes: trimmedNotes, linkedLoanTxId: null, linkedTransferId, createdAt: new Date().toISOString() },
+    { id: genId(), bankId: toBankId, date, type: 'transfer_in', amount: amt, notes: trimmedNotes, linkedLoanTxId: null, linkedTransferId, createdAt: new Date().toISOString() }
+  );
+  await persist();
+}
+
+async function deleteBankTransaction(id) {
+  const entry = cache.bankTransactions.find((bt) => bt.id === id);
+  if (!entry) return;
+  if (entry.linkedLoanTxId) throw new Error('This entry is linked to a loan transaction — edit or delete it from the Transactions tab.');
+  if (entry.linkedTransferId) {
+    cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.linkedTransferId !== entry.linkedTransferId);
+  } else {
+    cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.id !== id);
+  }
   await persist();
 }
 
@@ -258,6 +387,7 @@ async function addTransaction({ date, amount, profileId, type, bankId, notes }) 
     createdAt: new Date().toISOString(),
   };
   cache.transactions.push(tx);
+  addLinkedBankTx(tx);
   await persist();
   return tx;
 }
@@ -273,12 +403,15 @@ async function updateTransaction(id, { date, amount, profileId, type, bankId, no
     bankId: bankId || null,
     notes: notes?.trim() || '',
   });
+  removeLinkedBankTx(id);
+  addLinkedBankTx(tx);
   await persist();
   return tx;
 }
 
 async function deleteTransaction(id) {
   cache.transactions = cache.transactions.filter((t) => t.id !== id);
+  removeLinkedBankTx(id);
   await persist();
 }
 
@@ -324,6 +457,7 @@ function exportCSV() {
 async function importJSON(jsonText) {
   const parsed = JSON.parse(jsonText);
   cache = { ...emptyData(), ...parsed };
+  reconcileLoanLinkedBankTx();
   await persist();
   return cache;
 }
@@ -345,6 +479,13 @@ window.Storage = {
   addBank,
   updateBank,
   deleteBank,
+  listBankTransactions,
+  getBankBalance,
+  getAllBankBalances,
+  addBankDeposit,
+  addBankWithdrawal,
+  transferFunds,
+  deleteBankTransaction,
   listTransactions,
   addTransaction,
   updateTransaction,
