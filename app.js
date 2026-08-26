@@ -14,7 +14,26 @@ const BANK_TX_LABELS = {
   transfer_out: 'Transfer out',
   loan_in: 'Loan — money in',
   loan_out: 'Loan — money out',
+  expense_out: 'Expense',
 };
+
+// Inline SVGs (no icon font/CDN) — stroke uses currentColor so they inherit
+// the button's text color in both themes automatically.
+const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const ICON_DELETE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+const ICON_HISTORY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>';
+const ICON_ADD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const ICON_SAVE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+// Logo mark — rounded badge + "K" monogram, same line-icon style as the ICON_* set above.
+const LOGO_MARK = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M9 6v12M9 12l6-6M9 12l6 6"/></svg>';
+
+// Primary submit button for an add/edit form: swaps icon+label by editing state.
+function submitBtn(isEditing, addLabel, disabled) {
+  const label = isEditing ? 'Save changes' : addLabel;
+  const icon = isEditing ? ICON_SAVE : ICON_ADD;
+  return `<button class="btn btn-primary" type="submit" title="${label}" ${disabled ? 'disabled' : ''}>${icon} ${label}</button>`;
+}
 
 const money = (n) => {
   const abs = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,16 +48,64 @@ let editingTxId = null;
 let editingProfileId = null;
 let editingBankId = null;
 let viewingBankId = null;
+let editingExpenseId = null;
+let editingPlaceId = null;
+let editingCategoryId = null;
+let expenseBreakdownBy = 'categoryId'; // 'categoryId' | 'placeId'
+
+// ---------------- Pagination ----------------
+// One page-state slot per table; shared helpers slice the list and render a
+// footer bar. Tables with a live client-side filter (transactions/banks/
+// expenses) paginate the *filtered* list, so page-size/prev/next re-run that
+// table's filter function instead of a full render() — a full render() would
+// also reset the filter inputs back to their defaults.
+const pagination = {
+  transactions: { page: 1, pageSize: 10 },
+  profiles: { page: 1, pageSize: 10 },
+  banks: { page: 1, pageSize: 10 },
+  bankDetail: { page: 1, pageSize: 10 },
+  expenses: { page: 1, pageSize: 10 },
+};
+
+function paginateList(key, items) {
+  const state = pagination[key];
+  const totalPages = Math.max(1, Math.ceil(items.length / state.pageSize));
+  if (state.page > totalPages) state.page = totalPages;
+  const start = (state.page - 1) * state.pageSize;
+  return { pageItems: items.slice(start, start + state.pageSize), total: items.length, page: state.page, totalPages };
+}
+
+function paginationBar(key, total, page, totalPages) {
+  if (!total) return '';
+  return `
+    <div class="pagination">
+      <span class="pagination-info">${total} ${total === 1 ? 'entry' : 'entries'}</span>
+      <select class="pagination-size" data-page-key="${key}">
+        <option value="10" ${pagination[key].pageSize === 10 ? 'selected' : ''}>10 / page</option>
+        <option value="20" ${pagination[key].pageSize === 20 ? 'selected' : ''}>20 / page</option>
+        <option value="50" ${pagination[key].pageSize === 50 ? 'selected' : ''}>50 / page</option>
+      </select>
+      <button class="btn btn-sm" data-page-key="${key}" data-page-action="prev" ${page <= 1 ? 'disabled' : ''}>&larr;</button>
+      <span class="pagination-page">${page} / ${totalPages}</span>
+      <button class="btn btn-sm" data-page-key="${key}" data-page-action="next" ${page >= totalPages ? 'disabled' : ''}>&rarr;</button>
+    </div>`;
+}
 
 function optionsHtml(items, selectedId) {
   return items.map((i) => `<option value="${i.id}" ${i.id === selectedId ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
 }
 
 function toast(msg, isError = false) {
+  let container = $('#toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
-  el.textContent = msg;
-  document.body.appendChild(el);
+  el.innerHTML = `<span class="toast-icon">${isError ? '✕' : '✓'}</span><span>${esc(msg)}</span>`;
+  container.appendChild(el);
   setTimeout(() => el.remove(), 3200);
 }
 
@@ -60,7 +127,7 @@ function showReconnectScreen(fileName) {
   $('#app').classList.add('hidden');
   $('#connect-screen').innerHTML = `
     <div class="connect-card">
-      <h1>Loan Tracker</h1>
+      <h1 class="brand-heading">${LOGO_MARK}<span>Konto</span></h1>
       <p>Reconnect to <strong>${esc(fileName || 'your loan table')}</strong> to continue where you left off.</p>
       <div class="connect-actions">
         <button class="btn btn-primary" id="btn-reconnect">Reconnect</button>
@@ -85,7 +152,7 @@ function showConnectScreen() {
   if (!Storage.supportsFS) {
     $('#connect-screen').innerHTML = `
       <div class="connect-card">
-        <h1>Loan Tracker</h1>
+        <h1 class="brand-heading">${LOGO_MARK}<span>Konto</span></h1>
         <p>Your browser doesn't support saving directly to a file, so data will be kept in this browser's local storage instead. Use Export regularly to back up.</p>
         <div class="connect-actions">
           <button class="btn btn-primary" id="btn-use-local">Continue</button>
@@ -97,7 +164,7 @@ function showConnectScreen() {
 
   $('#connect-screen').innerHTML = `
     <div class="connect-card">
-      <h1>Loan Tracker</h1>
+      <h1 class="brand-heading">${LOGO_MARK}<span>Konto</span></h1>
       <p>Choose where to store your loan table (a JSON file). It stays on your machine — nothing is uploaded anywhere.</p>
       <div class="connect-actions">
         <button class="btn btn-primary" id="btn-create-new">Create new loan table</button>
@@ -129,7 +196,7 @@ function startApp() {
   $('#connect-screen').classList.add('hidden');
   $('#app').classList.remove('hidden');
   updateStorageModeFooter();
-  render();
+  applyHash();
 }
 
 function updateStorageModeFooter() {
@@ -139,16 +206,41 @@ function updateStorageModeFooter() {
 }
 
 // ---------------- Navigation ----------------
+// The current view lives in location.hash (e.g. "#banks/dev-b1"), not just
+// in-memory state. That way any reload — a stray form submit, F5, a
+// bookmark — lands back on the exact page instead of resetting to the
+// dashboard; navigation always goes through the hash, never a bare render().
+
+const VALID_VIEWS = ['dashboard', 'transactions', 'profiles', 'banks', 'expenses', 'export', 'settings'];
 
 function setView(view) {
-  currentView = view;
+  if (location.hash.replace(/^#/, '') === view) {
+    applyHash();
+  } else {
+    location.hash = view;
+  }
+}
+
+function goToBank(bankId) {
+  pagination.bankDetail.page = 1;
+  location.hash = `banks/${bankId}`;
+}
+
+function applyHash() {
+  const [view, subId] = location.hash.replace(/^#/, '').split('/');
+  currentView = VALID_VIEWS.includes(view) ? view : 'dashboard';
   editingTxId = null;
   editingProfileId = null;
   editingBankId = null;
-  viewingBankId = null;
-  $$('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  editingExpenseId = null;
+  editingPlaceId = null;
+  editingCategoryId = null;
+  viewingBankId = currentView === 'banks' && subId ? subId : null;
+  $$('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === currentView));
   render();
 }
+
+window.addEventListener('hashchange', applyHash);
 
 function render() {
   const main = $('#view-root');
@@ -156,6 +248,7 @@ function render() {
   else if (currentView === 'transactions') main.innerHTML = renderTransactions();
   else if (currentView === 'profiles') main.innerHTML = renderProfiles();
   else if (currentView === 'banks') main.innerHTML = renderBanks();
+  else if (currentView === 'expenses') main.innerHTML = renderExpenses();
   else if (currentView === 'export') main.innerHTML = renderExport();
   else if (currentView === 'settings') main.innerHTML = renderSettings();
   attachViewHandlers();
@@ -168,6 +261,10 @@ function renderDashboard() {
   const owedToMe = balances.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
   const iOwe = balances.filter((b) => b.balance < 0).reduce((s, b) => s + -b.balance, 0);
   const totalBankBalance = Storage.getAllBankBalances().reduce((s, b) => s + b.balance, 0);
+  const thisMonth = todayISO().slice(0, 7);
+  const expensesThisMonth = Storage.listExpenses()
+    .filter((e) => e.date.slice(0, 7) === thisMonth)
+    .reduce((s, e) => s + e.amount, 0);
 
   const cards = balances.length
     ? balances
@@ -189,23 +286,56 @@ function renderDashboard() {
     <div class="view">
       <h2>Dashboard</h2>
       <p class="view-sub">Net balances across everyone you lend to or borrow from.</p>
+
+      <h3 class="dash-section-title">Loan</h3>
       <div class="summary-row">
-        <div class="summary-card green"><div class="label">Owed to you</div><div class="value">${money(owedToMe)}</div></div>
-        <div class="summary-card red"><div class="label">You owe</div><div class="value">${money(iOwe)}</div></div>
-        <div class="summary-card"><div class="label">Net position</div><div class="value">${money(owedToMe - iOwe)}</div></div>
-        <div class="summary-card"><div class="label">Bank balance</div><div class="value">${money(totalBankBalance)}</div></div>
+        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value">${money(owedToMe)}</div></div>
+        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value">${money(iOwe)}</div></div>
       </div>
       <div class="balance-grid">${cards}</div>
+
+      <hr class="dash-divider">
+
+      <h3 class="dash-section-title">Bank</h3>
+      <div class="summary-row">
+        <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value">${money(totalBankBalance)}</div></div>
+        <div class="summary-card" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today."><div class="label">Net position</div><div class="value">${money(totalBankBalance + owedToMe - iOwe)}</div></div>
+      </div>
+
+      <hr class="dash-divider">
+
+      <h3 class="dash-section-title">Expense</h3>
+      <div class="summary-row">
+        <div class="summary-card red" title="Total expenses logged so far this calendar month."><div class="label">Expenses this month</div><div class="value">${money(expensesThisMonth)}</div></div>
+      </div>
     </div>`;
 }
 
 // ---------------- Transactions ----------------
 
+function renderTxRow(t, profiles, banks) {
+  const profile = profiles.find((p) => p.id === t.profileId);
+  const bank = banks.find((b) => b.id === t.bankId);
+  return `
+    <tr data-id="${t.id}">
+      <td>${formatDate(t.date)}</td>
+      <td>${profile ? esc(profile.name) : '<em>deleted</em>'}</td>
+      <td><span class="pill type-${t.type}">${TYPE_LABELS[t.type]}</span></td>
+      <td>${money(t.amount)}</td>
+      <td>${bank ? esc(bank.name) : '—'}</td>
+      <td>${esc(t.notes || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-icon" data-action="edit-tx" data-id="${t.id}" title="Edit transaction">${ICON_EDIT}</button>
+        <button class="btn btn-sm btn-icon btn-danger" data-action="delete-tx" data-id="${t.id}" title="Delete transaction">${ICON_DELETE}</button>
+      </td>
+    </tr>`;
+}
+
 function renderTransactions() {
   const profiles = Storage.listProfiles();
   const banks = Storage.listBanks();
-  const txs = Storage.listTransactions();
-  const editingTx = editingTxId ? txs.find((t) => t.id === editingTxId) : null;
+  const allTxs = Storage.listTransactions();
+  const editingTx = editingTxId ? allTxs.find((t) => t.id === editingTxId) : null;
 
   const profileOptions = optionsHtml(profiles, editingTx?.profileId);
   const bankOptions = optionsHtml(banks, editingTx?.bankId);
@@ -215,32 +345,13 @@ function renderTransactions() {
     `<option value="">All types</option>` +
     Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
-  const rows = txs.length
-    ? txs
-        .map((t) => {
-          const profile = profiles.find((p) => p.id === t.profileId);
-          const bank = banks.find((b) => b.id === t.bankId);
-          return `
-          <tr data-id="${t.id}">
-            <td>${formatDate(t.date)}</td>
-            <td>${profile ? esc(profile.name) : '<em>deleted</em>'}</td>
-            <td><span class="pill type-${t.type}">${TYPE_LABELS[t.type]}</span></td>
-            <td>${money(t.amount)}</td>
-            <td>${bank ? esc(bank.name) : '—'}</td>
-            <td>${esc(t.notes || '')}</td>
-            <td style="white-space:nowrap;">
-              <button class="btn btn-sm" data-action="edit-tx" data-id="${t.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-action="delete-tx" data-id="${t.id}">Delete</button>
-            </td>
-          </tr>`;
-        })
-        .join('')
-    : `<tr><td colspan="7"><div class="empty-state">No transactions yet.</div></td></tr>`;
+  const { pageItems: txs, total, page, totalPages } = paginateList('transactions', allTxs);
+  const rows = txs.length ? txs.map((t) => renderTxRow(t, profiles, banks)).join('') : `<tr><td colspan="7"><div class="empty-state">No transactions yet.</div></td></tr>`;
 
   return `
     <div class="view">
-      <h2>Transactions</h2>
-      <p class="view-sub">Every lend, borrow, and repayment.</p>
+      <h2>Loans</h2>
+      <p class="view-sub">Every loan you gave or received, and its repayments.</p>
 
       <div class="card" style="margin-bottom:20px;">
         <form id="tx-form">
@@ -259,12 +370,13 @@ function renderTransactions() {
             <div class="field"><label>Bank</label><select name="bankId"><option value="">— none —</option>${bankOptions}</select></div>
             <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" value="${editingTx ? esc(editingTx.notes || '') : ''}"></div>
           </div>
-          <button class="btn btn-primary" type="submit" ${profiles.length ? '' : 'disabled'}>${editingTx ? 'Save changes' : 'Add transaction'}</button>
+          ${submitBtn(!!editingTx, 'Add transaction', !profiles.length)}
           ${editingTx ? '<button type="button" class="btn" id="btn-cancel-tx-edit">Cancel</button>' : ''}
         </form>
       </div>
 
       <div class="filters">
+        <input type="search" id="filter-search" placeholder="Search by profile or notes...">
         <select id="filter-profile">${filterProfileOptions}</select>
         <select id="filter-type">${filterTypeOptions}</select>
       </div>
@@ -274,6 +386,7 @@ function renderTransactions() {
           <thead><tr><th>Date</th><th>Profile</th><th>Type</th><th>Amount</th><th>Bank</th><th>Notes</th><th></th></tr></thead>
           <tbody id="tx-rows">${rows}</tbody>
         </table>
+        <div id="tx-pagination">${paginationBar('transactions', total, page, totalPages)}</div>
       </div>
     </div>`;
 }
@@ -281,8 +394,9 @@ function renderTransactions() {
 // ---------------- Profiles ----------------
 
 function renderProfiles() {
-  const profiles = Storage.listProfiles();
-  const editingProfile = editingProfileId ? profiles.find((p) => p.id === editingProfileId) : null;
+  const allProfiles = Storage.listProfiles();
+  const editingProfile = editingProfileId ? allProfiles.find((p) => p.id === editingProfileId) : null;
+  const { pageItems: profiles, total, page, totalPages } = paginateList('profiles', allProfiles);
   const rows = profiles.length
     ? profiles
         .map((p) => {
@@ -294,8 +408,8 @@ function renderProfiles() {
             <td>${esc(p.email || '—')}</td>
             <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}">${money(bal)}</td>
             <td style="white-space:nowrap;">
-              <button class="btn btn-sm" data-action="edit-profile" data-id="${p.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-action="delete-profile" data-id="${p.id}">Delete</button>
+              <button class="btn btn-sm btn-icon" data-action="edit-profile" data-id="${p.id}" title="Edit profile">${ICON_EDIT}</button>
+              <button class="btn btn-sm btn-icon btn-danger" data-action="delete-profile" data-id="${p.id}" title="Delete profile">${ICON_DELETE}</button>
             </td>
           </tr>`;
         })
@@ -314,7 +428,7 @@ function renderProfiles() {
             <div class="field"><label>Contact</label><input type="text" name="contact" placeholder="Phone (optional)" value="${editingProfile ? esc(editingProfile.contact || '') : ''}"></div>
             <div class="field"><label>Email</label><input type="email" name="email" placeholder="Optional" value="${editingProfile ? esc(editingProfile.email || '') : ''}"></div>
           </div>
-          <button class="btn btn-primary" type="submit">${editingProfile ? 'Save changes' : 'Add profile'}</button>
+          ${submitBtn(!!editingProfile, 'Add profile', false)}
           ${editingProfile ? '<button type="button" class="btn" id="btn-cancel-profile-edit">Cancel</button>' : ''}
         </form>
       </div>
@@ -324,34 +438,34 @@ function renderProfiles() {
           <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Balance</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        ${paginationBar('profiles', total, page, totalPages)}
       </div>
     </div>`;
 }
 
 // ---------------- Banks ----------------
 
+function renderBankRow(b) {
+  const bal = Storage.getBankBalance(b.id);
+  return `
+    <tr data-id="${b.id}">
+      <td>${esc(b.name)}</td>
+      <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}">${money(bal)}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-icon" data-action="view-bank" data-id="${b.id}" title="View history">${ICON_HISTORY}</button>
+        <button class="btn btn-sm btn-icon" data-action="edit-bank" data-id="${b.id}" title="Edit bank">${ICON_EDIT}</button>
+        <button class="btn btn-sm btn-icon btn-danger" data-action="delete-bank" data-id="${b.id}" title="Delete bank">${ICON_DELETE}</button>
+      </td>
+    </tr>`;
+}
+
 function renderBanks() {
   if (viewingBankId) return renderBankDetail(viewingBankId);
 
-  const banks = Storage.listBanks();
-  const editingBank = editingBankId ? banks.find((b) => b.id === editingBankId) : null;
-  const rows = banks.length
-    ? banks
-        .map((b) => {
-          const bal = Storage.getBankBalance(b.id);
-          return `
-          <tr>
-            <td>${esc(b.name)}</td>
-            <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}">${money(bal)}</td>
-            <td style="white-space:nowrap;">
-              <button class="btn btn-sm" data-action="view-bank" data-id="${b.id}">History</button>
-              <button class="btn btn-sm" data-action="edit-bank" data-id="${b.id}">Edit</button>
-              <button class="btn btn-sm btn-danger" data-action="delete-bank" data-id="${b.id}">Delete</button>
-            </td>
-          </tr>`;
-        })
-        .join('')
-    : `<tr><td colspan="3"><div class="empty-state">No banks yet.</div></td></tr>`;
+  const allBanks = Storage.listBanks();
+  const editingBank = editingBankId ? allBanks.find((b) => b.id === editingBankId) : null;
+  const { pageItems: banks, total, page, totalPages } = paginateList('banks', allBanks);
+  const rows = banks.length ? banks.map(renderBankRow).join('') : `<tr><td colspan="3"><div class="empty-state">No banks yet.</div></td></tr>`;
 
   return `
     <div class="view">
@@ -363,16 +477,21 @@ function renderBanks() {
           <div class="form-grid">
             <div class="field"><label>Bank name</label><input type="text" name="name" required placeholder="e.g. HBL, Meezan, Cash" value="${editingBank ? esc(editingBank.name) : ''}"></div>
           </div>
-          <button class="btn btn-primary" type="submit">${editingBank ? 'Save changes' : 'Add bank'}</button>
+          ${submitBtn(!!editingBank, 'Add bank', false)}
           ${editingBank ? '<button type="button" class="btn" id="btn-cancel-bank-edit">Cancel</button>' : ''}
         </form>
+      </div>
+
+      <div class="filters">
+        <input type="search" id="filter-bank-search" placeholder="Search by bank name...">
       </div>
 
       <div class="card">
         <table>
           <thead><tr><th>Name</th><th>Balance</th><th></th></tr></thead>
-          <tbody>${rows}</tbody>
+          <tbody id="bank-rows">${rows}</tbody>
         </table>
+        <div id="bank-pagination">${paginationBar('banks', total, page, totalPages)}</div>
       </div>
     </div>`;
 }
@@ -387,7 +506,8 @@ function renderBankDetail(bankId) {
   const balance = Storage.getBankBalance(bankId);
   const otherBanks = Storage.listBanks().filter((b) => b.id !== bankId);
   const toBankOptions = optionsHtml(otherBanks);
-  const entries = Storage.listBankTransactions(bankId);
+  const allEntries = Storage.listBankTransactions(bankId);
+  const { pageItems: entries, total: entryTotal, page: entryPage, totalPages: entryTotalPages } = paginateList('bankDetail', allEntries);
 
   const rows = entries.length
     ? entries
@@ -399,8 +519,8 @@ function renderBankDetail(bankId) {
             <td>${formatDate(e.date)}</td>
             <td><span class="pill type-${e.type}">${BANK_TX_LABELS[e.type]}</span></td>
             <td class="${colorCls}">${positive ? '+' : '-'}${money(e.amount)}</td>
-            <td>${esc(e.notes || '')}${e.linkedLoanTxId ? ' <em>(from loan entry)</em>' : ''}</td>
-            <td style="white-space:nowrap;">${e.linkedLoanTxId ? '' : `<button class="btn btn-sm btn-danger" data-action="delete-bank-tx" data-id="${e.id}">Delete</button>`}</td>
+            <td>${esc(e.notes || '')}${e.linkedLoanTxId ? ' <em>(from loan entry)</em>' : e.linkedExpenseId ? ' <em>(from expense)</em>' : ''}</td>
+            <td style="white-space:nowrap;">${e.linkedLoanTxId || e.linkedExpenseId ? '' : `<button class="btn btn-sm btn-icon btn-danger" data-action="delete-bank-tx" data-id="${e.id}" title="Delete entry">${ICON_DELETE}</button>`}</td>
           </tr>`;
         })
         .join('')
@@ -421,19 +541,29 @@ function renderBankDetail(bankId) {
               <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
               <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
             </div>
-            <button class="btn btn-primary" type="submit">Add balance</button>
+            <button class="btn btn-primary" type="submit" title="Add balance">${ICON_ADD} Add balance</button>
           </form>
         </div>
 
-        <div class="card" style="flex:1; min-width:220px;">
+        <!--
+          Withdraw is intentionally disabled: unlike a deposit, money leaving
+          a bank should always be *for* something (an expense or a loan), or
+          the bank balance and the Expenses/Loans totals silently drift apart.
+          Record outgoing money as an Expense (or a loan "lent"/"repayment
+          made") instead — that keeps the bank ledger and the reason for the
+          money leaving in sync. Re-enable only if a use case turns up that
+          isn't better served by one of those two.
+        -->
+        <div class="card card-disabled" style="flex:1; min-width:220px;" title="Disabled — withdrawals aren't tied to an expense or loan, which can make the bank balance drift out of sync. Record money leaving this account as an Expense (or a loan) instead.">
           <h3 style="margin-top:0;">Withdraw balance</h3>
+          <p class="connect-note" style="margin:0 0 12px;">Disabled — use Expenses (or a loan entry) to record money leaving this account, so it stays tied to what it was for.</p>
           <form id="bank-withdraw-form" data-bank-id="${bankId}">
             <div class="form-grid">
-              <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
-              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
-              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
+              <div class="field"><label>Date</label><input type="date" name="date" value="${todayISO()}" disabled></div>
+              <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" placeholder="0.00" disabled></div>
+              <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" disabled></div>
             </div>
-            <button class="btn btn-primary" type="submit">Withdraw</button>
+            <button class="btn btn-primary" type="submit" disabled title="Withdraw">${ICON_ADD} Withdraw</button>
           </form>
         </div>
       </div>
@@ -447,7 +577,7 @@ function renderBankDetail(bankId) {
             <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
             <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
           </div>
-          <button class="btn btn-primary" type="submit" ${otherBanks.length ? '' : 'disabled'}>Transfer</button>
+          <button class="btn btn-primary" type="submit" ${otherBanks.length ? '' : 'disabled'} title="Transfer">${ICON_ADD} Transfer</button>
         </form>
       </div>
 
@@ -456,6 +586,240 @@ function renderBankDetail(bankId) {
           <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
+        ${paginationBar('bankDetail', entryTotal, entryPage, entryTotalPages)}
+      </div>
+    </div>`;
+}
+
+// ---------------- Expenses ----------------
+// Place and category are two independent, flat filters (not a category/
+// subcategory tree) so "all Mardan expenses" and "all Water bills across
+// every place" are both a single filter selection, not a lookup per place.
+
+// Donut chart of the currently-filtered expenses, grouped by whichever of the
+// two independent dimensions (category/place) is selected. Rebuilt from
+// scratch on every filter change (see applyExpenseFilters) so it always
+// reflects exactly what the table below it shows.
+function renderExpenseOverviewContent(filtered) {
+  const total = filtered.reduce((s, e) => s + e.amount, 0);
+  const toggle = `
+    <div class="breakdown-toggle">
+      <button class="btn btn-sm ${expenseBreakdownBy === 'categoryId' ? 'active' : ''}" data-breakdown="categoryId">By category</button>
+      <button class="btn btn-sm ${expenseBreakdownBy === 'placeId' ? 'active' : ''}" data-breakdown="placeId">By place</button>
+    </div>`;
+
+  if (!filtered.length || total <= 0) {
+    return `
+      <div class="overview-header">
+        <div><h3 style="margin:0 0 4px;">Overview</h3><div class="overview-total">${money(0)}</div></div>
+        ${toggle}
+      </div>
+      <div class="empty-state">No expenses in this range.</div>`;
+  }
+
+  const items = expenseBreakdownBy === 'placeId' ? Storage.listPlaces() : Storage.listExpenseCategories();
+  let slices = [...filtered.reduce((map, e) => {
+    const key = e[expenseBreakdownBy] || 'none';
+    map.set(key, (map.get(key) || 0) + e.amount);
+    return map;
+  }, new Map())]
+    .map(([id, amount]) => ({ name: items.find((i) => i.id === id)?.name || 'Uncategorized', amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const MAX_SLICES = 7;
+  if (slices.length > MAX_SLICES) {
+    const other = slices.slice(MAX_SLICES).reduce((s, x) => s + x.amount, 0);
+    slices = [...slices.slice(0, MAX_SLICES), { name: 'Other', amount: other }];
+  }
+
+  const R = 60, STROKE = 24, C = 2 * Math.PI * R, GAP = 2;
+  const CENTER = R + STROKE / 2; // ring's outer edge = R + STROKE/2 from center — box must span 2x that or it clips
+  const BOX = CENTER * 2;
+  let offset = 0;
+  const paths = slices
+    .map((s, i) => {
+      const frac = s.amount / total;
+      const len = Math.max(frac * C - GAP, 0);
+      const dashoffset = -offset;
+      offset += frac * C;
+      return `<circle class="pie-slice" cx="${CENTER}" cy="${CENTER}" r="${R}" fill="none" stroke="var(--cat-${i + 1})" stroke-width="${STROKE}" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${dashoffset}"><title>${esc(s.name)}: ${money(s.amount)} (${(frac * 100).toFixed(1)}%)</title></circle>`;
+    })
+    .join('');
+
+  const legend =
+    slices.length > 1
+      ? `<div class="overview-legend">${slices
+          .map(
+            (s, i) => `
+        <div class="legend-row">
+          <span class="legend-swatch" style="background:var(--cat-${i + 1})"></span>
+          <span class="legend-name">${esc(s.name)}</span>
+          <span class="legend-value">${money(s.amount)} <span class="legend-pct">(${((s.amount / total) * 100).toFixed(1)}%)</span></span>
+        </div>`
+          )
+          .join('')}</div>`
+      : '';
+
+  return `
+    <div class="overview-header">
+      <div><h3 style="margin:0 0 4px;">Overview</h3><div class="overview-total">${money(total)}</div></div>
+      ${toggle}
+    </div>
+    <div class="overview-body">
+      <div class="overview-chart">
+        <svg viewBox="0 0 ${BOX} ${BOX}" width="${BOX}" height="${BOX}" role="img" aria-label="Expense breakdown ${expenseBreakdownBy === 'placeId' ? 'by place' : 'by category'}">
+          <circle cx="${CENTER}" cy="${CENTER}" r="${R}" fill="none" stroke="var(--border)" stroke-width="${STROKE}"></circle>
+          <g transform="rotate(-90 ${CENTER} ${CENTER})">${paths}</g>
+        </svg>
+      </div>
+      ${legend}
+    </div>`;
+}
+
+function renderExpenseRow(e, places, categories, banks) {
+  const place = places.find((h) => h.id === e.placeId);
+  const category = categories.find((c) => c.id === e.categoryId);
+  const bank = banks.find((b) => b.id === e.bankId);
+  return `
+    <tr data-id="${e.id}">
+      <td>${formatDate(e.date)}</td>
+      <td>${place ? esc(place.name) : '<em>deleted</em>'}</td>
+      <td>${category ? esc(category.name) : '<em>deleted</em>'}</td>
+      <td class="type-lent">${money(e.amount)}</td>
+      <td>${bank ? esc(bank.name) : '—'}</td>
+      <td>${esc(e.notes || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-icon" data-action="edit-expense" data-id="${e.id}" title="Edit expense">${ICON_EDIT}</button>
+        <button class="btn btn-sm btn-icon btn-danger" data-action="delete-expense" data-id="${e.id}" title="Delete expense">${ICON_DELETE}</button>
+      </td>
+    </tr>`;
+}
+
+function renderExpenses() {
+  const places = Storage.listPlaces();
+  const categories = Storage.listExpenseCategories();
+  const banks = Storage.listBanks();
+  const expenses = Storage.listExpenses();
+
+  const editingPlace = editingPlaceId ? places.find((h) => h.id === editingPlaceId) : null;
+  const editingCategory = editingCategoryId ? categories.find((c) => c.id === editingCategoryId) : null;
+  const editingExpense = editingExpenseId ? expenses.find((e) => e.id === editingExpenseId) : null;
+
+  const placeRows = places.length
+    ? places
+        .map(
+          (h) => `
+          <tr>
+            <td>${esc(h.name)}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-sm btn-icon" data-action="edit-place" data-id="${h.id}" title="Edit place">${ICON_EDIT}</button>
+              <button class="btn btn-sm btn-icon btn-danger" data-action="delete-place" data-id="${h.id}" title="Delete place">${ICON_DELETE}</button>
+            </td>
+          </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="2"><div class="empty-state">No places yet.</div></td></tr>`;
+
+  const categoryRows = categories.length
+    ? categories
+        .map(
+          (c) => `
+          <tr>
+            <td>${esc(c.name)}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-sm btn-icon" data-action="edit-category" data-id="${c.id}" title="Edit category">${ICON_EDIT}</button>
+              <button class="btn btn-sm btn-icon btn-danger" data-action="delete-category" data-id="${c.id}" title="Delete category">${ICON_DELETE}</button>
+            </td>
+          </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="2"><div class="empty-state">No categories yet.</div></td></tr>`;
+
+  const placeOptions = optionsHtml(places, editingExpense?.placeId);
+  const categoryOptions = optionsHtml(categories, editingExpense?.categoryId);
+  const bankOptions = optionsHtml(banks, editingExpense?.bankId);
+  const canAddExpense = places.length && categories.length;
+
+  const filterPlaceOptions = `<option value="">All places</option>` + places.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join('');
+  const filterCategoryOptions = `<option value="">All categories</option>` + categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+
+  // Table rows and pagination are populated by applyExpenseFilters(), called
+  // unconditionally right after this view attaches (see attachViewHandlers) —
+  // it's the single source of truth for what "filtered" means here, so the
+  // initial paint doesn't duplicate that logic just to have it overwritten.
+
+  return `
+    <div class="view">
+      <h2>Expenses</h2>
+      <p class="view-sub">Money spent, tagged by place and category — filter by either independently.</p>
+
+      <div class="card" style="margin-bottom:20px;">
+        <form id="expense-form">
+          <div class="form-grid">
+            <div class="field"><label>Date</label><input type="date" name="date" required value="${editingExpense ? editingExpense.date : todayISO()}"></div>
+            <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00" value="${editingExpense ? editingExpense.amount : ''}"></div>
+            <div class="field"><label>Place</label><select name="placeId" required>${places.length ? placeOptions : '<option value="">Add a place first</option>'}</select></div>
+            <div class="field"><label>Category</label><select name="categoryId" required>${categories.length ? categoryOptions : '<option value="">Add a category first</option>'}</select></div>
+            <div class="field"><label>Bank</label><select name="bankId"><option value="">— none —</option>${bankOptions}</select></div>
+            <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" value="${editingExpense ? esc(editingExpense.notes || '') : ''}"></div>
+          </div>
+          ${submitBtn(!!editingExpense, 'Add expense', !canAddExpense)}
+          ${editingExpense ? '<button type="button" class="btn" id="btn-cancel-expense-edit">Cancel</button>' : ''}
+        </form>
+      </div>
+
+      <div class="filters">
+        <input type="search" id="filter-expense-search" placeholder="Search by notes...">
+        <select id="filter-place">${filterPlaceOptions}</select>
+        <select id="filter-category">${filterCategoryOptions}</select>
+        <input type="date" id="filter-date-from" title="From date" value="${firstOfMonthISO()}">
+        <input type="date" id="filter-date-to" title="To date" value="${todayISO()}">
+      </div>
+
+      <div class="card" id="expense-overview" style="margin-bottom:20px;"></div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <table>
+          <thead><tr><th>Date</th><th>Place</th><th>Category</th><th>Amount</th><th>Bank</th><th>Notes</th><th></th></tr></thead>
+          <tbody id="expense-rows"></tbody>
+        </table>
+        <div id="expense-pagination"></div>
+      </div>
+
+      <div class="summary-row">
+        <div class="card" style="flex:1; min-width:220px;">
+          <h3 style="margin-top:0;">Places</h3>
+          <form id="place-form">
+            <div class="form-grid">
+              <div class="field"><label>Name</label><input type="text" name="name" required placeholder="e.g. Place - Islamabad" value="${editingPlace ? esc(editingPlace.name) : ''}"></div>
+            </div>
+            ${submitBtn(!!editingPlace, 'Add place', false)}
+            ${editingPlace ? '<button type="button" class="btn" id="btn-cancel-place-edit">Cancel</button>' : ''}
+          </form>
+          <div class="list-scroll" style="margin-top:14px;">
+            <table>
+              <thead><tr><th>Name</th><th></th></tr></thead>
+              <tbody>${placeRows}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="flex:1; min-width:220px;">
+          <h3 style="margin-top:0;">Categories</h3>
+          <form id="category-form">
+            <div class="form-grid">
+              <div class="field"><label>Name</label><input type="text" name="name" required placeholder="e.g. Water, Electricity" value="${editingCategory ? esc(editingCategory.name) : ''}"></div>
+            </div>
+            ${submitBtn(!!editingCategory, 'Add category', false)}
+            ${editingCategory ? '<button type="button" class="btn" id="btn-cancel-category-edit">Cancel</button>' : ''}
+          </form>
+          <div class="list-scroll" style="margin-top:14px;">
+            <table>
+              <thead><tr><th>Name</th><th></th></tr></thead>
+              <tbody>${categoryRows}</tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -552,22 +916,32 @@ function attachViewHandlers() {
     })
   );
 
+  const filterSearch = $('#filter-search');
   const filterProfile = $('#filter-profile');
   const filterType = $('#filter-type');
-  const applyFilters = () => {
+  const applyFilters = (resetPage) => {
+    if (resetPage) pagination.transactions.page = 1;
+    const q = filterSearch?.value.trim().toLowerCase();
     const pid = filterProfile?.value;
     const type = filterType?.value;
-    $$('#tx-rows tr[data-id]').forEach((row) => {
-      const id = row.dataset.id;
-      const tx = Storage.listTransactions().find((t) => t.id === id);
-      if (!tx) return;
+    const profiles = Storage.listProfiles();
+    const banks = Storage.listBanks();
+    const filtered = Storage.listTransactions().filter((tx) => {
+      const profileName = profiles.find((p) => p.id === tx.profileId)?.name || '';
+      const matchQ = !q || profileName.toLowerCase().includes(q) || (tx.notes || '').toLowerCase().includes(q);
       const matchP = !pid || tx.profileId === pid;
       const matchT = !type || tx.type === type;
-      row.style.display = matchP && matchT ? '' : 'none';
+      return matchQ && matchP && matchT;
     });
+    const { pageItems, total, page, totalPages } = paginateList('transactions', filtered);
+    const txRows = $('#tx-rows');
+    if (txRows) txRows.innerHTML = pageItems.length ? pageItems.map((t) => renderTxRow(t, profiles, banks)).join('') : `<tr><td colspan="7"><div class="empty-state">No transactions match.</div></td></tr>`;
+    const bar = $('#tx-pagination');
+    if (bar) bar.innerHTML = paginationBar('transactions', total, page, totalPages);
   };
-  filterProfile?.addEventListener('change', applyFilters);
-  filterType?.addEventListener('change', applyFilters);
+  filterSearch?.addEventListener('input', () => applyFilters(true));
+  filterProfile?.addEventListener('change', () => applyFilters(true));
+  filterType?.addEventListener('change', () => applyFilters(true));
 
   const profileForm = $('#profile-form');
   if (profileForm) {
@@ -646,6 +1020,19 @@ function attachViewHandlers() {
     render();
   });
 
+  const bankSearch = $('#filter-bank-search');
+  const applyBankFilters = (resetPage) => {
+    if (resetPage) pagination.banks.page = 1;
+    const q = bankSearch?.value.trim().toLowerCase();
+    const filtered = Storage.listBanks().filter((b) => !q || b.name.toLowerCase().includes(q));
+    const { pageItems, total, page, totalPages } = paginateList('banks', filtered);
+    const bankRows = $('#bank-rows');
+    if (bankRows) bankRows.innerHTML = pageItems.length ? pageItems.map(renderBankRow).join('') : `<tr><td colspan="3"><div class="empty-state">No banks match.</div></td></tr>`;
+    const bar = $('#bank-pagination');
+    if (bar) bar.innerHTML = paginationBar('banks', total, page, totalPages);
+  };
+  bankSearch?.addEventListener('input', () => applyBankFilters(true));
+
   $$('[data-action="edit-bank"]').forEach((btn) =>
     btn.addEventListener('click', () => {
       editingBankId = btn.dataset.id;
@@ -667,16 +1054,10 @@ function attachViewHandlers() {
   );
 
   $$('[data-action="view-bank"]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      viewingBankId = btn.dataset.id;
-      render();
-    })
+    btn.addEventListener('click', () => goToBank(btn.dataset.id))
   );
 
-  $('#btn-back-to-banks')?.addEventListener('click', () => {
-    viewingBankId = null;
-    render();
-  });
+  $('#btn-back-to-banks')?.addEventListener('click', () => setView('banks'));
 
   const depositForm = $('#bank-deposit-form');
   if (depositForm) {
@@ -752,6 +1133,205 @@ function attachViewHandlers() {
     })
   );
 
+  const placeForm = $('#place-form');
+  if (placeForm) {
+    placeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(placeForm);
+      const name = fd.get('name').trim();
+      if (!name) return;
+      try {
+        if (editingPlaceId) {
+          await Storage.updatePlace(editingPlaceId, { name });
+          toast('Place updated.');
+        } else {
+          await Storage.addPlace({ name });
+          toast('Place added.');
+        }
+        editingPlaceId = null;
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  $('#btn-cancel-place-edit')?.addEventListener('click', () => {
+    editingPlaceId = null;
+    render();
+  });
+
+  $$('[data-action="edit-place"]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      editingPlaceId = btn.dataset.id;
+      render();
+    })
+  );
+
+  $$('[data-action="delete-place"]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this place?')) return;
+      try {
+        await Storage.deletePlace(btn.dataset.id);
+        toast('Place deleted.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    })
+  );
+
+  const categoryForm = $('#category-form');
+  if (categoryForm) {
+    categoryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(categoryForm);
+      const name = fd.get('name').trim();
+      if (!name) return;
+      try {
+        if (editingCategoryId) {
+          await Storage.updateExpenseCategory(editingCategoryId, { name });
+          toast('Category updated.');
+        } else {
+          await Storage.addExpenseCategory({ name });
+          toast('Category added.');
+        }
+        editingCategoryId = null;
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  $('#btn-cancel-category-edit')?.addEventListener('click', () => {
+    editingCategoryId = null;
+    render();
+  });
+
+  $$('[data-action="edit-category"]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      editingCategoryId = btn.dataset.id;
+      render();
+    })
+  );
+
+  $$('[data-action="delete-category"]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this category?')) return;
+      try {
+        await Storage.deleteExpenseCategory(btn.dataset.id);
+        toast('Category deleted.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    })
+  );
+
+  const expenseForm = $('#expense-form');
+  if (expenseForm) {
+    expenseForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(expenseForm);
+      const fields = {
+        date: fd.get('date'),
+        amount: fd.get('amount'),
+        placeId: fd.get('placeId'),
+        categoryId: fd.get('categoryId'),
+        bankId: fd.get('bankId'),
+        notes: fd.get('notes'),
+      };
+      try {
+        if (editingExpenseId) {
+          await Storage.updateExpense(editingExpenseId, fields);
+          toast('Expense updated.');
+        } else {
+          await Storage.addExpense(fields);
+          toast('Expense added.');
+        }
+        editingExpenseId = null;
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  $('#btn-cancel-expense-edit')?.addEventListener('click', () => {
+    editingExpenseId = null;
+    render();
+  });
+
+  // Delegated on the stable #expense-rows tbody, not the row buttons
+  // themselves — rows are populated later by applyExpenseFilters() (see
+  // below), so a direct per-button listener attached here would find none.
+  $('#expense-rows')?.addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-action="edit-expense"]');
+    if (editBtn) {
+      editingExpenseId = editBtn.dataset.id;
+      render();
+      return;
+    }
+    const deleteBtn = e.target.closest('[data-action="delete-expense"]');
+    if (deleteBtn) {
+      if (!confirm('Delete this expense?')) return;
+      await Storage.deleteExpense(deleteBtn.dataset.id);
+      toast('Expense deleted.');
+      render();
+    }
+  });
+
+  const expenseSearch = $('#filter-expense-search');
+  const filterPlace = $('#filter-place');
+  const filterCategory = $('#filter-category');
+  const filterDateFrom = $('#filter-date-from');
+  const filterDateTo = $('#filter-date-to');
+  const applyExpenseFilters = (resetPage) => {
+    if (resetPage) pagination.expenses.page = 1;
+    const q = expenseSearch?.value.trim().toLowerCase();
+    const placeId = filterPlace?.value;
+    const categoryId = filterCategory?.value;
+    const from = filterDateFrom?.value;
+    const to = filterDateTo?.value;
+    const places = Storage.listPlaces();
+    const categories = Storage.listExpenseCategories();
+    const banks = Storage.listBanks();
+    const filtered = Storage.listExpenses().filter((ex) => {
+      const matchQ = !q || (ex.notes || '').toLowerCase().includes(q);
+      const matchPlace = !placeId || ex.placeId === placeId;
+      const matchCategory = !categoryId || ex.categoryId === categoryId;
+      const matchFrom = !from || ex.date >= from;
+      const matchTo = !to || ex.date <= to;
+      return matchQ && matchPlace && matchCategory && matchFrom && matchTo;
+    });
+    // Chart/total reflect the whole filtered set; the table shows one page of it.
+    const { pageItems, total, page, totalPages } = paginateList('expenses', filtered);
+    const expenseRows = $('#expense-rows');
+    if (expenseRows) expenseRows.innerHTML = pageItems.length ? pageItems.map((e) => renderExpenseRow(e, places, categories, banks)).join('') : `<tr><td colspan="7"><div class="empty-state">No expenses match.</div></td></tr>`;
+    const bar = $('#expense-pagination');
+    if (bar) bar.innerHTML = paginationBar('expenses', total, page, totalPages);
+    const overview = $('#expense-overview');
+    if (overview) overview.innerHTML = renderExpenseOverviewContent(filtered);
+  };
+  expenseSearch?.addEventListener('input', () => applyExpenseFilters(true));
+  filterPlace?.addEventListener('change', () => applyExpenseFilters(true));
+  filterCategory?.addEventListener('change', () => applyExpenseFilters(true));
+  filterDateFrom?.addEventListener('change', () => applyExpenseFilters(true));
+  filterDateTo?.addEventListener('change', () => applyExpenseFilters(true));
+
+  // Delegated on the stable #expense-overview container (not the toggle
+  // buttons themselves — applyExpenseFilters replaces their innerHTML on
+  // every filter change, which would detach a listener bound directly to them).
+  $('#expense-overview')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-breakdown]');
+    if (!btn) return;
+    expenseBreakdownBy = btn.dataset.breakdown;
+    applyExpenseFilters();
+  });
+
+  if ($('#expense-overview')) applyExpenseFilters();
+
   $('#btn-settings-new')?.addEventListener('click', async () => {
     try {
       await Storage.createNew();
@@ -788,6 +1368,34 @@ function attachViewHandlers() {
       toast('Invalid JSON file.', true);
     }
   });
+
+  // Shared across every paginated table (data-page-key names the slot in the
+  // `pagination` state). Tables with a live filter re-run that filter's
+  // apply function so rows/chart stay in sync; the rest just re-render.
+  const refreshAfterPagination = (key) => {
+    if (key === 'transactions') applyFilters();
+    else if (key === 'banks') applyBankFilters();
+    else if (key === 'expenses') applyExpenseFilters();
+    else render();
+  };
+
+  $$('.pagination-size').forEach((sel) =>
+    sel.addEventListener('change', () => {
+      const key = sel.dataset.pageKey;
+      pagination[key].pageSize = Number(sel.value);
+      pagination[key].page = 1;
+      refreshAfterPagination(key);
+    })
+  );
+
+  $$('[data-page-action]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.pageKey;
+      pagination[key].page += btn.dataset.pageAction === 'next' ? 1 : -1;
+      if (pagination[key].page < 1) pagination[key].page = 1;
+      refreshAfterPagination(key);
+    })
+  );
 }
 
 function downloadFile(filename, content, type) {
@@ -808,6 +1416,11 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function firstOfMonthISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 function formatDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -815,7 +1428,22 @@ function formatDate(iso) {
 
 // ---------------- Init ----------------
 
+function closeMobileSidebar() {
+  $('#sidebar')?.classList.remove('open');
+  $('#sidebar-backdrop')?.classList.remove('open');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  $$('nav button').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view)));
+  $$('nav button').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      setView(btn.dataset.view);
+      closeMobileSidebar();
+    })
+  );
+  $('#btn-sidebar-toggle')?.addEventListener('click', () => {
+    $('#sidebar')?.classList.toggle('open');
+    $('#sidebar-backdrop')?.classList.toggle('open');
+  });
+  $('#sidebar-backdrop')?.addEventListener('click', closeMobileSidebar);
   boot();
 });

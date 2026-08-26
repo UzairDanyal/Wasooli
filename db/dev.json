@@ -99,6 +99,16 @@
       "bankId": null,
       "notes": "Cash in hand, not tracked",
       "createdAt": "2026-08-22T10:00:00.000Z"
+    },
+    {
+      "id": "mt9t57l8-h5uw3gw",
+      "date": "2026-08-26",
+      "amount": 35110,
+      "profileId": "dev-p1",
+      "type": "repayment_received",
+      "bankId": "dev-b1",
+      "notes": "",
+      "createdAt": "2026-08-26T08:04:05.420Z"
     }
   ],
   "bankTransactions": [
@@ -244,6 +254,194 @@
       "linkedLoanTxId": null,
       "linkedTransferId": null,
       "createdAt": "2026-08-26T07:37:18.245Z"
+    },
+    {
+      "id": "mt9t57l8-4a6gtgx",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "loan_in",
+      "amount": 35110,
+      "notes": "",
+      "linkedLoanTxId": "mt9t57l8-h5uw3gw",
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-26T08:04:05.420Z"
+    },
+    {
+      "id": "dev-bt-exp1",
+      "bankId": "dev-b1",
+      "date": "2026-08-03",
+      "type": "expense_out",
+      "amount": 1200,
+      "notes": "Islamabad water bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex1",
+      "createdAt": "2026-08-03T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp2",
+      "bankId": "dev-b1",
+      "date": "2026-08-05",
+      "type": "expense_out",
+      "amount": 900,
+      "notes": "Mardan water bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex2",
+      "createdAt": "2026-08-05T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp3",
+      "bankId": "dev-b3",
+      "date": "2026-08-10",
+      "type": "expense_out",
+      "amount": 4500,
+      "notes": "Islamabad electricity bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex3",
+      "createdAt": "2026-08-10T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp4",
+      "bankId": "dev-b1",
+      "date": "2026-08-12",
+      "type": "expense_out",
+      "amount": 3800,
+      "notes": "Mardan electricity bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex4",
+      "createdAt": "2026-08-12T09:00:00.000Z"
+    },
+    {
+      "id": "mt9uzukf-uxpmfj2",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "expense_out",
+      "amount": 88,
+      "notes": "",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "mt9uzukf-vsn0ly6",
+      "createdAt": "2026-08-26T08:55:54.495Z"
+    }
+  ],
+  "places": [
+    {
+      "id": "dev-h1",
+      "name": "Home - Islamabad",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-h2",
+      "name": "Home - Mardan",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    }
+  ],
+  "expenseCategories": [
+    {
+      "id": "dev-c1",
+      "name": "Water",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-c2",
+      "name": "Electricity",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-c3",
+      "name": "Groceries",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "mt9tzovd-spkiro6",
+      "name": "k",
+      "createdAt": "2026-08-26T08:27:47.497Z"
+    },
+    {
+      "id": "mt9tzr9p-iwq5qb8",
+      "name": "k -edit",
+      "createdAt": "2026-08-26T08:27:50.605Z"
+    },
+    {
+      "id": "mt9tztl4-4qf7n91",
+      "name": "k",
+      "createdAt": "2026-08-26T08:27:53.608Z"
+    },
+    {
+      "id": "mt9tzygj-dfmmt8j",
+      "name": "j",
+      "createdAt": "2026-08-26T08:27:59.923Z"
+    },
+    {
+      "id": "mt9u00gv-at1bxo7",
+      "name": "h",
+      "createdAt": "2026-08-26T08:28:02.527Z"
+    }
+  ],
+  "expenses": [
+    {
+      "id": "dev-ex1",
+      "date": "2026-08-03",
+      "amount": 1200,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c1",
+      "bankId": "dev-b1",
+      "notes": "Islamabad water bill",
+      "createdAt": "2026-08-03T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex2",
+      "date": "2026-08-05",
+      "amount": 900,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c1",
+      "bankId": "dev-b1",
+      "notes": "Mardan water bill",
+      "createdAt": "2026-08-05T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex3",
+      "date": "2026-08-10",
+      "amount": 4500,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b3",
+      "notes": "Islamabad electricity bill",
+      "createdAt": "2026-08-10T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex4",
+      "date": "2026-08-12",
+      "amount": 3800,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b1",
+      "notes": "Mardan electricity bill",
+      "createdAt": "2026-08-12T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex5",
+      "date": "2026-08-15",
+      "amount": 6000,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c3",
+      "bankId": null,
+      "notes": "Groceries for parents, paid cash in hand",
+      "createdAt": "2026-08-15T09:00:00.000Z"
+    },
+    {
+      "id": "mt9uzukf-vsn0ly6",
+      "date": "2026-08-26",
+      "amount": 88,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b1",
+      "notes": "",
+      "createdAt": "2026-08-26T08:55:54.495Z"
     }
   ]
 }

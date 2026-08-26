@@ -1,4 +1,4 @@
-# Wasooli Bhai — Loan Tracker
+# Konto
 
 A browser-based app for tracking money lent to and borrowed from people you know — no server, no account, no cloud. Data is stored as a single JSON file on your own machine (or in browser local storage as a fallback).
 
