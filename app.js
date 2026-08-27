@@ -104,6 +104,7 @@ let editingTxId = null;
 let editingProfileId = null;
 let editingBankId = null;
 let viewingBankId = null;
+let editingAssetId = null;
 let editingExpenseId = null;
 let editingPlaceId = null;
 let editingCategoryId = null;
@@ -121,6 +122,7 @@ const pagination = {
   banks: { page: 1, pageSize: 10 },
   bankDetail: { page: 1, pageSize: 10 },
   expenses: { page: 1, pageSize: 10 },
+  assets: { page: 1, pageSize: 10 },
 };
 
 function paginateList(key, items) {
@@ -267,7 +269,7 @@ function updateStorageModeFooter() {
 // bookmark — lands back on the exact page instead of resetting to the
 // dashboard; navigation always goes through the hash, never a bare render().
 
-const VALID_VIEWS = ['dashboard', 'transactions', 'profiles', 'banks', 'expenses', 'export', 'settings'];
+const VALID_VIEWS = ['dashboard', 'transactions', 'profiles', 'banks', 'assets', 'expenses', 'export', 'settings'];
 
 function setView(view) {
   if (location.hash.replace(/^#/, '') === view) {
@@ -291,6 +293,7 @@ function applyHash() {
   editingExpenseId = null;
   editingPlaceId = null;
   editingCategoryId = null;
+  editingAssetId = null;
   viewingBankId = currentView === 'banks' && subId ? subId : null;
   $$('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === currentView));
   render();
@@ -313,6 +316,7 @@ function render() {
   else if (currentView === 'transactions') main.innerHTML = renderTransactions();
   else if (currentView === 'profiles') main.innerHTML = renderProfiles();
   else if (currentView === 'banks') main.innerHTML = renderBanks();
+  else if (currentView === 'assets') main.innerHTML = renderAssets();
   else if (currentView === 'expenses') main.innerHTML = renderExpenses();
   else if (currentView === 'export') main.innerHTML = renderExport();
   else if (currentView === 'settings') main.innerHTML = renderSettings();
@@ -326,6 +330,8 @@ function renderDashboard() {
   const owedToMe = balances.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
   const iOwe = balances.filter((b) => b.balance < 0).reduce((s, b) => s + -b.balance, 0);
   const totalBankBalance = Storage.getAllBankBalances().reduce((s, b) => s + b.balance, 0);
+  const totalAssetsWorth = Storage.getTotalAssetsWorth();
+  const netWorth = owedToMe + totalBankBalance + totalAssetsWorth - iOwe;
   const thisMonth = todayISO().slice(0, 7);
   const expensesThisMonth = Storage.listExpenses()
     .filter((e) => e.date.slice(0, 7) === thisMonth)
@@ -356,6 +362,11 @@ function renderDashboard() {
       <h2>Dashboard</h2>
       <p class="view-sub">Net balances across everyone you lend to or borrow from.</p>
 
+      <div class="net-worth-card" title="Owed to you + Bank balance + Assets worth − You owe">
+        <div class="label">Net worth</div>
+        <div class="value" title="${moneyWords(netWorth)}">${money(netWorth)}</div>
+      </div>
+
       <h3 class="dash-section-title">Loan</h3>
       <div class="summary-row">
         <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${money(owedToMe)}</div></div>
@@ -369,6 +380,13 @@ function renderDashboard() {
       <div class="summary-row">
         <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${money(totalBankBalance)}</div></div>
         <div class="summary-card" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today."><div class="label">Net position</div><div class="value" title="${moneyWords(totalBankBalance + owedToMe - iOwe)}">${money(totalBankBalance + owedToMe - iOwe)}</div></div>
+      </div>
+
+      <hr class="dash-divider">
+
+      <h3 class="dash-section-title">Assets</h3>
+      <div class="summary-row">
+        <div class="summary-card" title="Combined worth of everything logged in the Assets tab."><div class="label">Assets worth</div><div class="value" title="${moneyWords(totalAssetsWorth)}">${money(totalAssetsWorth)}</div></div>
       </div>
 
       <hr class="dash-divider">
@@ -563,6 +581,60 @@ function renderBanks() {
           ${banks.length ? `<tfoot><tr><td>Total</td><td class="total-value" title="${moneyWords(totalBalance)}">${money(totalBalance)}</td><td></td></tr></tfoot>` : ''}
         </table>
         <div id="bank-pagination">${paginationBar('banks', total, page, totalPages)}</div>
+      </div>
+    </div>`;
+}
+
+// ---------------- Assets ----------------
+
+function renderAssetRow(a) {
+  return `
+    <tr data-id="${a.id}">
+      <td>${esc(a.name)}</td>
+      <td title="${moneyWords(a.worth)}">${money(a.worth)}</td>
+      <td>${esc(a.notes)}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-icon" data-action="edit-asset" data-id="${a.id}" title="Edit asset">${ICON_EDIT}</button>
+        <button class="btn btn-sm btn-icon btn-danger" data-action="delete-asset" data-id="${a.id}" title="Delete asset">${ICON_DELETE}</button>
+      </td>
+    </tr>`;
+}
+
+function renderAssets() {
+  const allAssets = Storage.listAssets();
+  const editingAsset = editingAssetId ? allAssets.find((a) => a.id === editingAssetId) : null;
+  const { pageItems: assets, total, page, totalPages } = paginateList('assets', allAssets);
+  const rows = assets.length ? assets.map(renderAssetRow).join('') : `<tr><td colspan="4"><div class="empty-state">No assets yet.</div></td></tr>`;
+  const totalWorth = allAssets.reduce((s, a) => s + a.worth, 0);
+
+  return `
+    <div class="view">
+      <h2>Assets</h2>
+      <p class="view-sub">Things you own that hold value — property, vehicles, gold, investments.</p>
+
+      <div class="card" style="margin-bottom:20px;">
+        <form id="asset-form">
+          <div class="form-grid">
+            <div class="field"><label>Asset name</label><input type="text" name="name" required placeholder="e.g. Car, Gold, Plot" value="${editingAsset ? esc(editingAsset.name) : ''}"></div>
+            <div class="field"><label>Worth</label><input type="number" name="worth" step="0.01" min="0" required placeholder="0.00" value="${editingAsset ? editingAsset.worth : ''}"></div>
+            <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" required placeholder="e.g. 2020 Honda Civic, white" value="${editingAsset ? esc(editingAsset.notes || '') : ''}"></div>
+          </div>
+          ${submitBtn(!!editingAsset, 'Add asset', false)}
+          ${editingAsset ? '<button type="button" class="btn" id="btn-cancel-asset-edit">Cancel</button>' : ''}
+        </form>
+      </div>
+
+      <div class="filters">
+        <input type="search" id="filter-asset-search" placeholder="Search by asset name...">
+      </div>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Worth</th><th>Notes</th><th></th></tr></thead>
+          <tbody id="asset-rows">${rows}</tbody>
+          ${assets.length ? `<tfoot><tr><td>Total</td><td class="total-value" title="${moneyWords(totalWorth)}">${money(totalWorth)}</td><td></td><td></td></tr></tfoot>` : ''}
+        </table>
+        <div id="asset-pagination">${paginationBar('assets', total, page, totalPages)}</div>
       </div>
     </div>`;
 }
@@ -1153,6 +1225,72 @@ function attachViewHandlers() {
 
   $('#btn-back-to-banks')?.addEventListener('click', () => setView('banks'));
 
+  const assetForm = $('#asset-form');
+  if (assetForm) {
+    assetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(assetForm);
+      const name = fd.get('name').trim();
+      const worth = fd.get('worth');
+      const notes = fd.get('notes').trim();
+      if (!name || !notes) return;
+      try {
+        if (editingAssetId) {
+          await Storage.updateAsset(editingAssetId, { name, worth, notes });
+          toast('Asset updated.');
+        } else {
+          await Storage.addAsset({ name, worth, notes });
+          toast('Asset added.');
+        }
+        editingAssetId = null;
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
+  $('#btn-cancel-asset-edit')?.addEventListener('click', () => {
+    editingAssetId = null;
+    render();
+  });
+
+  const assetSearch = $('#filter-asset-search');
+  const applyAssetFilters = (resetPage) => {
+    if (resetPage) pagination.assets.page = 1;
+    const q = assetSearch?.value.trim().toLowerCase();
+    const filtered = Storage.listAssets().filter((a) => !q || a.name.toLowerCase().includes(q));
+    const { pageItems, total, page, totalPages } = paginateList('assets', filtered);
+    const assetRows = $('#asset-rows');
+    if (assetRows) assetRows.innerHTML = pageItems.length ? pageItems.map(renderAssetRow).join('') : `<tr><td colspan="4"><div class="empty-state">No assets match.</div></td></tr>`;
+    const bar = $('#asset-pagination');
+    if (bar) bar.innerHTML = paginationBar('assets', total, page, totalPages);
+  };
+  assetSearch?.addEventListener('input', () => applyAssetFilters(true));
+
+  // Delegated on the stable #asset-rows tbody — applyAssetFilters() above
+  // replaces its innerHTML on every search/pagination change, which would
+  // detach listeners bound directly to the row buttons.
+  $('#asset-rows')?.addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('[data-action="edit-asset"]');
+    if (editBtn) {
+      editingAssetId = editBtn.dataset.id;
+      render();
+      return;
+    }
+    const deleteBtn = e.target.closest('[data-action="delete-asset"]');
+    if (deleteBtn) {
+      if (!confirm('Delete this asset?')) return;
+      try {
+        await Storage.deleteAsset(deleteBtn.dataset.id);
+        toast('Asset deleted.');
+        render();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+  });
+
   const depositForm = $('#bank-deposit-form');
   if (depositForm) {
     depositForm.addEventListener('submit', async (e) => {
@@ -1469,6 +1607,7 @@ function attachViewHandlers() {
   const refreshAfterPagination = (key) => {
     if (key === 'transactions') applyFilters();
     else if (key === 'banks') applyBankFilters();
+    else if (key === 'assets') applyAssetFilters();
     else if (key === 'expenses') applyExpenseFilters();
     else render();
   };
@@ -1479,7 +1618,7 @@ function attachViewHandlers() {
   // Each wrapper below is recreated fresh whenever its view (re)renders —
   // for transactions/banks/expenses that also includes every live-filter
   // innerHTML swap, which is exactly what orphaned a directly-bound listener.
-  ['tx-pagination', 'profile-pagination', 'bank-pagination', 'bankDetail-pagination', 'expense-pagination'].forEach((id) => {
+  ['tx-pagination', 'profile-pagination', 'bank-pagination', 'bankDetail-pagination', 'asset-pagination', 'expense-pagination'].forEach((id) => {
     const bar = $(`#${id}`);
     if (!bar) return;
     bar.addEventListener('change', (e) => {

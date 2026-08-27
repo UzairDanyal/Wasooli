@@ -16,6 +16,7 @@ const emptyData = () => ({
   places: [],
   expenseCategories: [],
   expenses: [],
+  assets: [],
 });
 
 function genId() {
@@ -32,6 +33,10 @@ function coerceAmounts(data) {
     for (const item of data[key] || []) {
       if (item && typeof item.amount !== 'number') item.amount = Number(item.amount) || 0;
     }
+  }
+  for (const item of data.assets || []) {
+    if (item && typeof item.worth !== 'number') item.worth = Number(item.worth) || 0;
+    if (item && typeof item.notes !== 'string') item.notes = item.notes ? String(item.notes) : '';
   }
   return data;
 }
@@ -265,6 +270,40 @@ async function deleteBank(id) {
   if (inUse) throw new Error('Cannot delete a bank with existing transactions. Remove them first.');
   cache.banks = cache.banks.filter((b) => b.id !== id);
   await persist();
+}
+
+// -- Assets --
+// A flat, user-managed list of owned valuables (property, vehicles, gold,
+// investments) with a directly-editable worth — unlike bank balances, there's
+// no ledger behind it, so updating an asset just overwrites its worth.
+function listAssets() {
+  return [...cache.assets].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function addAsset({ name, worth, notes }) {
+  const asset = { id: genId(), name: name.trim(), worth: Number(worth) || 0, notes: notes.trim(), createdAt: new Date().toISOString() };
+  cache.assets.push(asset);
+  await persist();
+  return asset;
+}
+
+async function updateAsset(id, { name, worth, notes }) {
+  const a = cache.assets.find((a) => a.id === id);
+  if (!a) throw new Error('Asset not found');
+  a.name = name.trim();
+  a.worth = Number(worth) || 0;
+  a.notes = notes.trim();
+  await persist();
+  return a;
+}
+
+async function deleteAsset(id) {
+  cache.assets = cache.assets.filter((a) => a.id !== id);
+  await persist();
+}
+
+function getTotalAssetsWorth() {
+  return cache.assets.reduce((sum, a) => sum + a.worth, 0);
 }
 
 // -- Bank ledger --
@@ -629,6 +668,11 @@ window.Storage = {
   addBank,
   updateBank,
   deleteBank,
+  listAssets,
+  addAsset,
+  updateAsset,
+  deleteAsset,
+  getTotalAssetsWorth,
   listBankTransactions,
   getBankBalance,
   getAllBankBalances,

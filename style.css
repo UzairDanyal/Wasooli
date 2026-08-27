@@ -220,6 +220,15 @@ input:focus, select:focus, textarea:focus {
 .summary-card.green .value { color: var(--green); }
 .summary-card.red .value { color: var(--red); }
 
+.net-worth-card {
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 24px;
+}
+.net-worth-card .label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.85); margin-bottom: 8px; }
+.net-worth-card .value { font-size: 34px; font-weight: 800; color: #fff; }
+
 .balance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .balance-card {
   position: relative;
