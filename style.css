@@ -268,6 +268,9 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
 th { color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; }
 tbody tr:hover { background: var(--bg); }
+#bank-rows tr[data-id] { cursor: pointer; }
+tfoot td { font-weight: 600; border-bottom: none; }
+tfoot .total-value { color: var(--primary); font-size: 15px; font-weight: 700; }
 
 .pill {
   display: inline-block;

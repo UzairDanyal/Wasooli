@@ -519,7 +519,7 @@ function renderBankRow(b) {
   return `
     <tr data-id="${b.id}">
       <td>${esc(b.name)}</td>
-      <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}">${money(bal)}</td>
+      <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}" title="${moneyWords(bal)}">${money(bal)}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-sm btn-icon" data-action="view-bank" data-id="${b.id}" title="View history">${ICON_HISTORY}</button>
         <button class="btn btn-sm btn-icon" data-action="edit-bank" data-id="${b.id}" title="Edit bank">${ICON_EDIT}</button>
@@ -535,6 +535,7 @@ function renderBanks() {
   const editingBank = editingBankId ? allBanks.find((b) => b.id === editingBankId) : null;
   const { pageItems: banks, total, page, totalPages } = paginateList('banks', allBanks);
   const rows = banks.length ? banks.map(renderBankRow).join('') : `<tr><td colspan="3"><div class="empty-state">No banks yet.</div></td></tr>`;
+  const totalBalance = allBanks.reduce((s, b) => s + Storage.getBankBalance(b.id), 0);
 
   return `
     <div class="view">
@@ -559,6 +560,7 @@ function renderBanks() {
         <table>
           <thead><tr><th>Name</th><th>Balance</th><th></th></tr></thead>
           <tbody id="bank-rows">${rows}</tbody>
+          ${banks.length ? `<tfoot><tr><td>Total</td><td class="total-value" title="${moneyWords(totalBalance)}">${money(totalBalance)}</td><td></td></tr></tfoot>` : ''}
         </table>
         <div id="bank-pagination">${paginationBar('banks', total, page, totalPages)}</div>
       </div>
@@ -1141,6 +1143,12 @@ function attachViewHandlers() {
         toast(err.message, true);
       }
     }
+  });
+
+  $('#bank-rows')?.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    const row = e.target.closest('tr[data-id]');
+    if (row) goToBank(row.dataset.id);
   });
 
   $('#btn-back-to-banks')?.addEventListener('click', () => setView('banks'));
