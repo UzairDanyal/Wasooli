@@ -367,15 +367,6 @@ function renderDashboard() {
         <div class="value" title="${moneyWords(netWorth)}">${money(netWorth)}</div>
       </div>
 
-      <h3 class="dash-section-title">Loan</h3>
-      <div class="summary-row">
-        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${money(owedToMe)}</div></div>
-        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value" title="${moneyWords(iOwe)}">${money(iOwe)}</div></div>
-      </div>
-      <div class="balance-grid">${cards}</div>
-
-      <hr class="dash-divider">
-
       <h3 class="dash-section-title">Bank</h3>
       <div class="summary-row">
         <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${money(totalBankBalance)}</div></div>
@@ -388,6 +379,15 @@ function renderDashboard() {
       <div class="summary-row">
         <div class="summary-card" title="Combined worth of everything logged in the Assets tab."><div class="label">Assets worth</div><div class="value" title="${moneyWords(totalAssetsWorth)}">${money(totalAssetsWorth)}</div></div>
       </div>
+
+      <hr class="dash-divider">
+
+      <h3 class="dash-section-title">Loan</h3>
+      <div class="summary-row">
+        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${money(owedToMe)}</div></div>
+        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value" title="${moneyWords(iOwe)}">${money(iOwe)}</div></div>
+      </div>
+      <div class="balance-grid">${cards}</div>
 
       <hr class="dash-divider">
 
