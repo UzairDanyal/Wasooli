@@ -17,6 +17,9 @@ const BANK_TX_LABELS = {
   expense_out: 'Expense',
 };
 
+// Display-only — the authoritative currency list/order is Storage.CURRENCIES.
+const CURRENCY_SYMBOLS = { USD: '$', PKR: 'Rs', EUR: '€' };
+
 // Inline SVGs (no icon font/CDN) — stroke uses currentColor so they inherit
 // the button's text color in both themes automatically.
 const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
@@ -210,6 +213,28 @@ function paginationBar(key, total, page, totalPages) {
 
 function optionsHtml(items, selectedId) {
   return items.map((i) => `<option value="${i.id}" ${i.id === selectedId ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
+}
+
+function currencyOptionsHtml(selected) {
+  return Storage.CURRENCIES.map((c) => `<option value="${c}" ${c === selected ? 'selected' : ''}>${c} (${CURRENCY_SYMBOLS[c]})</option>`).join('');
+}
+
+// Reference-only lookup shown next to the Settings rate fields — the saved
+// rate is still whatever the user typed and clicked Save on; this never
+// writes anything. A free no-key API since the app otherwise makes no
+// network calls at all; failures (offline, API down) degrade silently.
+async function fetchLiveRate(currency) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.rates?.PKR === 'number' ? data.rates.PKR : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------- Multi-select filter ----------------
@@ -461,9 +486,9 @@ function renderDashboard() {
   const balances = Storage.getAllBalances();
   const owedToMe = balances.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
   const iOwe = balances.filter((b) => b.balance < 0).reduce((s, b) => s + -b.balance, 0);
-  const totalBankBalance = Storage.getAllBankBalances().reduce((s, b) => s + b.balance, 0);
+  const totalBankBalancePKR = Storage.getTotalBankBalancePKR();
   const totalAssetsWorth = Storage.getTotalAssetsWorth();
-  const netWorth = owedToMe + totalBankBalance + totalAssetsWorth - iOwe;
+  const netWorth = owedToMe + totalBankBalancePKR + totalAssetsWorth - iOwe;
   const thisMonth = todayISO().slice(0, 7);
   const expensesThisMonth = Storage.listExpenses()
     .filter((e) => e.date.slice(0, 7) === thisMonth)
@@ -474,15 +499,14 @@ function renderDashboard() {
       <h2>Dashboard</h2>
       <p class="view-sub">Your money at a glance — banks, assets, loans and spending.</p>
 
-      <div class="net-worth-card" title="Owed to you + Bank balance + Assets worth − You owe">
+      <div class="net-worth-card" title="Owed to you + Bank balance (converted to PKR) + Assets worth − You owe">
         <div class="label">Net worth</div>
         <div class="value" title="${moneyWords(netWorth)}">${moneyWhole(netWorth)}</div>
       </div>
 
       <h3 class="dash-section-title">Bank</h3>
       <div class="summary-row">
-        <div class="summary-card featured ${totalBankBalance < -0.004 ? 'neg' : 'pos'}" data-nav="banks" title="Combined balance across all your bank accounts. Double-click to open Banks."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${moneyWhole(totalBankBalance)}</div></div>
-        <div class="summary-card" data-nav="banks" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today. Double-click to open Banks."><div class="label">Net position</div><div class="value" title="${moneyWords(totalBankBalance + owedToMe - iOwe)}">${moneyWhole(totalBankBalance + owedToMe - iOwe)}</div></div>
+        <div class="summary-card featured ${totalBankBalancePKR < -0.004 ? 'neg' : 'pos'}" data-nav="banks" title="Combined balance across all your bank accounts, converted to PKR at the configured rates. Double-click to open Banks."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalancePKR)}">${moneyWhole(totalBankBalancePKR)}</div></div>
       </div>
 
       <hr class="dash-divider">
@@ -531,12 +555,18 @@ function renderTxRow(t, profiles, banks) {
 
 function renderTransactions() {
   const profiles = Storage.listProfiles();
-  const banks = Storage.listBanks();
+  const allBanks = Storage.listBanks();
   const allTxs = Storage.listTransactions();
   const editingTx = editingTxId ? allTxs.find((t) => t.id === editingTxId) : null;
 
+  // Loans are PKR-only, but a bank already linked to this transaction stays
+  // selectable even if its currency was since changed — otherwise reopening
+  // the form to edit an unrelated field (e.g. Notes) would silently drop
+  // the bank link.
+  const pkrBanks = allBanks.filter((b) => b.currency === 'PKR' || b.id === editingTx?.bankId);
+
   const profileOptions = optionsHtml(profiles, editingTx?.profileId);
-  const bankOptions = optionsHtml(banks, editingTx?.bankId);
+  const bankOptions = optionsHtml(pkrBanks, editingTx?.bankId);
 
   const filterProfileOptions = `<option value="">All profiles</option>` + profiles.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   const filterTypeOptions =
@@ -544,7 +574,7 @@ function renderTransactions() {
     Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
   const { pageItems: txs, total, page, totalPages } = paginateList('transactions', allTxs);
-  const rows = txs.length ? txs.map((t) => renderTxRow(t, profiles, banks)).join('') : `<tr><td colspan="7"><div class="empty-state">No transactions yet.</div></td></tr>`;
+  const rows = txs.length ? txs.map((t) => renderTxRow(t, profiles, allBanks)).join('') : `<tr><td colspan="7"><div class="empty-state">No transactions yet.</div></td></tr>`;
 
   return `
     <div class="view">
@@ -565,7 +595,7 @@ function renderTransactions() {
                 <option value="repayment_made" ${editingTx?.type === 'repayment_made' ? 'selected' : ''}>Repayment made (I paid them back)</option>
               </select>
             </div>
-            <div class="field"><label>Bank</label><select name="bankId"><option value="">— none —</option>${bankOptions}</select></div>
+            <div class="field"><label>Bank</label><select name="bankId" title="Only PKR accounts are shown."><option value="">— none —</option>${bankOptions}</select></div>
             <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" value="${editingTx ? esc(editingTx.notes || '') : ''}"></div>
             ${
               editingTx
@@ -657,10 +687,14 @@ function renderProfiles() {
 
 function renderBankRow(b) {
   const bal = Storage.getBankBalance(b.id);
+  // PKR rows get the usual lac/crore spellout; a foreign-currency row is more
+  // useful showing what its balance is actually worth in PKR on hover.
+  const balTitle = b.currency === 'PKR' ? moneyWords(bal) : `≈ Rs ${money(Storage.convertToPKR(bal, b.currency))} at the current rate`;
   return `
     <tr data-id="${b.id}">
       <td>${esc(b.name)}</td>
-      <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}" title="${moneyWords(bal)}">${money(bal)}</td>
+      <td><span class="pill currency">${b.currency}</span></td>
+      <td class="${bal > 0.004 ? 'type-borrowed' : bal < -0.004 ? 'type-lent' : ''}" title="${balTitle}">${CURRENCY_SYMBOLS[b.currency]} ${money(bal)}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-sm btn-icon" data-action="view-bank" data-id="${b.id}" title="View history">${ICON_HISTORY}</button>
         <button class="btn btn-sm btn-icon" data-action="edit-bank" data-id="${b.id}" title="Edit bank">${ICON_EDIT}</button>
@@ -675,8 +709,8 @@ function renderBanks() {
   const allBanks = Storage.listBanks();
   const editingBank = editingBankId ? allBanks.find((b) => b.id === editingBankId) : null;
   const { pageItems: banks, total, page, totalPages } = paginateList('banks', allBanks);
-  const rows = banks.length ? banks.map(renderBankRow).join('') : `<tr><td colspan="3"><div class="empty-state">No banks yet.</div></td></tr>`;
-  const totalBalance = allBanks.reduce((s, b) => s + Storage.getBankBalance(b.id), 0);
+  const rows = banks.length ? banks.map(renderBankRow).join('') : `<tr><td colspan="4"><div class="empty-state">No banks yet.</div></td></tr>`;
+  const currencyTotals = Storage.getBalancesByCurrency();
 
   return `
     <div class="view">
@@ -687,11 +721,28 @@ function renderBanks() {
         <form id="bank-form">
           <div class="form-grid">
             <div class="field"><label>Bank name</label><input type="text" name="name" required placeholder="e.g. HBL, Meezan, Cash" value="${editingBank ? esc(editingBank.name) : ''}"></div>
+            <div class="field"><label>Currency</label><select name="currency">${currencyOptionsHtml(editingBank?.currency || 'PKR')}</select></div>
           </div>
           ${submitBtn(!!editingBank, 'Add bank', false)}
           ${editingBank ? '<button type="button" class="btn" id="btn-cancel-bank-edit">Cancel</button>' : ''}
         </form>
       </div>
+
+      ${
+        currencyTotals.length
+          ? `<div class="summary-row" style="margin-bottom:20px;">
+              ${currencyTotals
+                .map(
+                  ({ currency, total }) => `
+                <div class="summary-card">
+                  <div class="label">${currency} total</div>
+                  <div class="value" title="${moneyWords(total)}">${CURRENCY_SYMBOLS[currency]} ${moneyWhole(total)}</div>
+                </div>`
+                )
+                .join('')}
+            </div>`
+          : ''
+      }
 
       <div class="filters">
         <input type="search" id="filter-bank-search" placeholder="Search by bank name...">
@@ -699,9 +750,8 @@ function renderBanks() {
 
       <div class="card">
         <table>
-          <thead><tr><th>Name</th><th>Balance</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Currency</th><th>Balance</th><th></th></tr></thead>
           <tbody id="bank-rows">${rows}</tbody>
-          ${banks.length ? `<tfoot><tr><td>Total</td><td class="total-value" title="${moneyWords(totalBalance)}">${money(totalBalance)}</td><td></td></tr></tfoot>` : ''}
         </table>
         <div id="bank-pagination">${paginationBar('banks', total, page, totalPages)}</div>
       </div>
@@ -770,7 +820,8 @@ function renderBankDetail(bankId) {
   }
 
   const balance = Storage.getBankBalance(bankId);
-  const otherBanks = Storage.listBanks().filter((b) => b.id !== bankId);
+  const symbol = CURRENCY_SYMBOLS[bank.currency];
+  const otherBanks = Storage.listBanks().filter((b) => b.id !== bankId && b.currency === bank.currency);
   const toBankOptions = optionsHtml(otherBanks);
   const allEntries = Storage.listBankTransactions(bankId);
   const { pageItems: entries, total: entryTotal, page: entryPage, totalPages: entryTotalPages } = paginateList('bankDetail', allEntries);
@@ -784,7 +835,7 @@ function renderBankDetail(bankId) {
           <tr>
             <td>${formatDate(e.date)}</td>
             <td><span class="pill type-${e.type}">${BANK_TX_LABELS[e.type]}</span></td>
-            <td class="${colorCls}">${positive ? '+' : '-'}${money(e.amount)}</td>
+            <td class="${colorCls}">${positive ? '+' : '-'}${symbol}${money(e.amount)}</td>
             <td>${esc(e.notes || '')}${e.linkedLoanTxId ? ' <em>(from loan entry)</em>' : e.linkedExpenseId ? ' <em>(from expense)</em>' : ''}</td>
             <td style="white-space:nowrap;">${e.linkedLoanTxId || e.linkedExpenseId ? '' : `<button class="btn btn-sm btn-icon btn-danger" data-action="delete-bank-tx" data-id="${e.id}" title="Delete entry">${ICON_DELETE}</button>`}</td>
           </tr>`;
@@ -795,8 +846,8 @@ function renderBankDetail(bankId) {
   return `
     <div class="view">
       <button class="btn btn-sm" id="btn-back-to-banks" style="margin-bottom:16px;">&larr; All banks</button>
-      <h2>${esc(bank.name)}</h2>
-      <p class="view-sub">Balance: <strong>${money(balance)}</strong></p>
+      <h2>${esc(bank.name)} <span class="pill currency">${bank.currency}</span></h2>
+      <p class="view-sub">Balance: <strong>${symbol} ${money(balance)}</strong></p>
 
       <div class="summary-row" style="margin-bottom:20px;">
         <div class="card" style="flex:1; min-width:220px;">
@@ -827,11 +878,11 @@ function renderBankDetail(bankId) {
 
       <div class="card" style="margin-bottom:20px;">
         <h3 style="margin-top:0;">Interbank Transfer</h3>
-        <p class="connect-note" style="margin:0 0 12px;">Move money between your own accounts — pick which of your other banks it's going to.</p>
+        <p class="connect-note" style="margin:0 0 12px;">Move money between your own accounts — pick which of your other ${bank.currency} accounts it's going to. Only same-currency accounts can transfer to each other.</p>
         <form id="bank-transfer-form" data-bank-id="${bankId}">
           <div class="form-grid">
             <div class="field"><label>Date</label><input type="date" name="date" required value="${todayISO()}"></div>
-            <div class="field"><label>To bank</label><select name="toBankId" required>${otherBanks.length ? toBankOptions : '<option value="">Add another bank first</option>'}</select></div>
+            <div class="field"><label>To bank</label><select name="toBankId" required>${otherBanks.length ? toBankOptions : `<option value="">No other ${bank.currency} accounts yet</option>`}</select></div>
             <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00"></div>
             <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional"></div>
           </div>
@@ -956,12 +1007,17 @@ function renderExpenseRow(e, places, categories, banks) {
 function renderExpenses() {
   const places = Storage.listPlaces();
   const categories = Storage.listExpenseCategories();
-  const banks = Storage.listBanks();
+  const allBanks = Storage.listBanks();
   const expenses = Storage.listExpenses();
 
   const editingPlace = editingPlaceId ? places.find((h) => h.id === editingPlaceId) : null;
   const editingCategory = editingCategoryId ? categories.find((c) => c.id === editingCategoryId) : null;
   const editingExpense = editingExpenseId ? expenses.find((e) => e.id === editingExpenseId) : null;
+
+  // Expenses are PKR-only, but a bank already linked to this expense stays
+  // selectable even if its currency was since changed — otherwise reopening
+  // the form to edit an unrelated field would silently drop the bank link.
+  const pkrBanks = allBanks.filter((b) => b.currency === 'PKR' || b.id === editingExpense?.bankId);
 
   const placeRows = places.length
     ? places
@@ -995,7 +1051,7 @@ function renderExpenses() {
 
   const placeOptions = optionsHtml(places, editingExpense?.placeId);
   const categoryOptions = optionsHtml(categories, editingExpense?.categoryId);
-  const bankOptions = optionsHtml(banks, editingExpense?.bankId);
+  const bankOptions = optionsHtml(pkrBanks, editingExpense?.bankId);
   const canAddExpense = places.length && categories.length;
 
   // A place/category deleted while it was filtered on would otherwise sit in
@@ -1020,7 +1076,7 @@ function renderExpenses() {
             <div class="field"><label>Amount</label><input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00" value="${editingExpense ? editingExpense.amount : ''}"></div>
             <div class="field"><label>Place</label><select name="placeId" required>${places.length ? placeOptions : '<option value="">Add a place first</option>'}</select></div>
             <div class="field"><label>Category</label><select name="categoryId" required>${categories.length ? categoryOptions : '<option value="">Add a category first</option>'}</select></div>
-            <div class="field"><label>Bank</label><select name="bankId"><option value="">— none —</option>${bankOptions}</select></div>
+            <div class="field"><label>Bank</label><select name="bankId" title="Only PKR accounts are shown."><option value="">— none —</option>${bankOptions}</select></div>
             <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" value="${editingExpense ? esc(editingExpense.notes || '') : ''}"></div>
           </div>
           ${submitBtn(!!editingExpense, 'Add expense', !canAddExpense)}
@@ -1104,11 +1160,25 @@ function renderExport() {
 function renderSettings() {
   const mode = Storage.getMode();
   const fileName = Storage.getFileName?.();
+  const { rates } = Storage.getSettings();
 
   return `
     <div class="view">
       <h2>Settings</h2>
-      <p class="view-sub">Manage where your loan data is stored.</p>
+      <p class="view-sub">Manage where your loan data is stored and how foreign-currency banks convert to PKR.</p>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="margin-top:0;">Currency rates</h3>
+        <p class="connect-note" style="margin:0 0 12px;">How many PKR one unit of each currency is worth — used to convert USD/EUR bank balances into the Dashboard's PKR totals. PKR itself needs no rate.</p>
+        <form id="settings-rates-form">
+          <div class="form-grid">
+            <div class="field"><label>USD &rarr; PKR rate <span class="live-rate" id="live-rate-USD">(fetching live rate&hellip;)</span></label><input type="number" name="USD" step="0.01" min="0.01" required value="${rates.USD}"></div>
+            <div class="field"><label>EUR &rarr; PKR rate <span class="live-rate" id="live-rate-EUR">(fetching live rate&hellip;)</span></label><input type="number" name="EUR" step="0.01" min="0.01" required value="${rates.EUR}"></div>
+          </div>
+          <button class="btn btn-primary" type="submit" title="Save rates">${ICON_SAVE} Save rates</button>
+        </form>
+      </div>
+
       <div class="card">
         <p><strong>Current storage:</strong> ${mode === 'fs' ? `Local file — ${esc(fileName || 'unknown')}` : 'Browser local storage'}</p>
         ${
@@ -1325,13 +1395,14 @@ function attachViewHandlers() {
       e.preventDefault();
       const fd = new FormData(bankForm);
       const name = fd.get('name').trim();
+      const currency = fd.get('currency');
       if (!name) return;
       try {
         if (editingBankId) {
-          await Storage.updateBank(editingBankId, { name });
+          await Storage.updateBank(editingBankId, { name, currency });
           toast('Bank updated.');
         } else {
-          await Storage.addBank({ name });
+          await Storage.addBank({ name, currency });
           toast('Bank added.');
         }
         editingBankId = null;
@@ -1354,7 +1425,7 @@ function attachViewHandlers() {
     const filtered = Storage.listBanks().filter((b) => !q || b.name.toLowerCase().includes(q));
     const { pageItems, total, page, totalPages } = paginateList('banks', filtered);
     const bankRows = $('#bank-rows');
-    if (bankRows) bankRows.innerHTML = pageItems.length ? pageItems.map(renderBankRow).join('') : `<tr><td colspan="3"><div class="empty-state">No banks match.</div></td></tr>`;
+    if (bankRows) bankRows.innerHTML = pageItems.length ? pageItems.map(renderBankRow).join('') : `<tr><td colspan="4"><div class="empty-state">No banks match.</div></td></tr>`;
     const bar = $('#bank-pagination');
     if (bar) bar.innerHTML = paginationBar('banks', total, page, totalPages);
   };
@@ -1758,6 +1829,31 @@ function attachViewHandlers() {
   });
 
   if ($('#expense-overview')) applyExpenseFilters();
+
+  const settingsRatesForm = $('#settings-rates-form');
+  settingsRatesForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(settingsRatesForm);
+    try {
+      await Storage.updateSettings({ rates: { USD: fd.get('USD'), EUR: fd.get('EUR') } });
+      toast('Currency rates updated.');
+      render();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  // Fires once per Settings visit, purely to populate the reference labels —
+  // never touches the saved rate or the input values themselves.
+  for (const currency of ['USD', 'EUR']) {
+    const label = $(`#live-rate-${currency}`);
+    if (!label) continue;
+    fetchLiveRate(currency).then((rate) => {
+      const el = $(`#live-rate-${currency}`); // re-query: view may have re-rendered by the time this resolves
+      if (!el) return;
+      el.textContent = rate != null ? `(live: ${rate.toFixed(2)})` : '(live rate unavailable)';
+    });
+  }
 
   $('#btn-settings-new')?.addEventListener('click', async () => {
     try {

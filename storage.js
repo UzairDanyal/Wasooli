@@ -8,6 +8,9 @@ const DB_STORE = 'handles';
 const HANDLE_KEY = 'dataFileHandle';
 const LOCAL_KEY = 'loan-app-data';
 
+// Fixed order — mirrored in app.js's currency dropdowns and per-currency cards.
+const CURRENCIES = ['USD', 'PKR', 'EUR'];
+
 const emptyData = () => ({
   profiles: [],
   banks: [],
@@ -17,6 +20,7 @@ const emptyData = () => ({
   expenseCategories: [],
   expenses: [],
   assets: [],
+  settings: { rates: { USD: 1, EUR: 1 } },
 });
 
 function genId() {
@@ -27,7 +31,10 @@ function genId() {
 // data loaded from disk/localStorage/import comes from outside that path —
 // a hand-edited or externally-produced file could carry a quoted amount
 // (e.g. "500"), which would silently corrupt sums via string concatenation
-// (0 + "500" === "0500") wherever getBalance/getBankBalance use `+`.
+// (0 + "500" === "0500") wherever getBalance/getBankBalance use `+`. This is
+// also where currency/settings get normalized for the same reason: a file
+// from before multi-currency support (or a hand-edited import) may have no
+// `bank.currency` or `settings` at all.
 function coerceAmounts(data) {
   for (const key of ['transactions', 'bankTransactions', 'expenses']) {
     for (const item of data[key] || []) {
@@ -38,6 +45,14 @@ function coerceAmounts(data) {
     if (item && typeof item.worth !== 'number') item.worth = Number(item.worth) || 0;
     if (item && typeof item.notes !== 'string') item.notes = item.notes ? String(item.notes) : '';
   }
+  for (const bank of data.banks || []) {
+    if (bank && !CURRENCIES.includes(bank.currency)) bank.currency = 'PKR';
+  }
+  // Merged rather than replaced outright: the caller's `{...emptyData(), ...parsed}`
+  // spread is shallow, so a file that only customized one rate (or predates
+  // `settings` entirely) would otherwise lose the other currency's default.
+  const rates = data.settings?.rates || {};
+  data.settings = { rates: { USD: Number(rates.USD) || 1, EUR: Number(rates.EUR) || 1 } };
   return data;
 }
 
@@ -245,22 +260,56 @@ async function deleteProfile(id) {
   await persist();
 }
 
+// -- Settings --
+// App-wide preferences, not tied to any one record. `rates` maps each
+// non-PKR bank currency to how many PKR one unit is worth — PKR itself is
+// the fixed base (rate 1, implicit, never stored). Defaults come from
+// emptyData()/coerceAmounts() for any file that predates this key.
+function getSettings() {
+  return cache.settings;
+}
+
+async function updateSettings({ rates }) {
+  cache.settings = {
+    rates: {
+      USD: Number(rates?.USD) || 1,
+      EUR: Number(rates?.EUR) || 1,
+    },
+  };
+  await persist();
+  return cache.settings;
+}
+
+function convertToPKR(amount, currency) {
+  if (!currency || currency === 'PKR') return amount;
+  return amount * (Number(cache.settings.rates[currency]) || 1);
+}
+
 // -- Banks --
 function listBanks() {
   return [...cache.banks].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function addBank({ name }) {
-  const bank = { id: genId(), name: name.trim(), createdAt: new Date().toISOString() };
+async function addBank({ name, currency }) {
+  const bank = {
+    id: genId(),
+    name: name.trim(),
+    currency: CURRENCIES.includes(currency) ? currency : 'PKR',
+    createdAt: new Date().toISOString(),
+  };
   cache.banks.push(bank);
   await persist();
   return bank;
 }
 
-async function updateBank(id, { name }) {
+async function updateBank(id, { name, currency }) {
   const b = cache.banks.find((b) => b.id === id);
   if (!b) throw new Error('Bank not found');
   b.name = name.trim();
+  // Currency can be freely reassigned even if the bank already has ledger
+  // history — no recalculation happens here; the owner corrects historical
+  // balances themselves via deposit/withdrawal entries afterward.
+  if (CURRENCIES.includes(currency)) b.currency = currency;
   await persist();
   return b;
 }
@@ -327,6 +376,11 @@ function removeLinkedBankTx(loanTxId) {
 
 function addLinkedBankTx(loanTx) {
   if (!loanTx.bankId) return;
+  // Guarded here (not just in addTransaction) because reconcileLoanLinkedBankTx()
+  // calls this directly on every load — a bank reassigned away from PKR after
+  // a loan already referenced it must not keep re-backfilling that bank's ledger.
+  const bank = cache.banks.find((b) => b.id === loanTx.bankId);
+  if (!bank || bank.currency !== 'PKR') return;
   const type = bankTxTypeForLoan(loanTx.type);
   if (!type) return;
   cache.bankTransactions.push({
@@ -349,6 +403,8 @@ function removeLinkedBankTxForExpense(expenseId) {
 
 function addLinkedBankTxForExpense(expense) {
   if (!expense.bankId) return;
+  const bank = cache.banks.find((b) => b.id === expense.bankId);
+  if (!bank || bank.currency !== 'PKR') return;
   cache.bankTransactions.push({
     id: genId(),
     bankId: expense.bankId,
@@ -394,6 +450,22 @@ function getAllBankBalances() {
   return cache.banks.map((b) => ({ bank: b, balance: getBankBalance(b.id) }));
 }
 
+// Per-currency subtotal across every bank — used for the Banks page's
+// per-currency cards, and to isolate the PKR-only figure for the Dashboard.
+function getBalancesByCurrency() {
+  const totals = {};
+  for (const { bank, balance } of getAllBankBalances()) {
+    totals[bank.currency] = (totals[bank.currency] || 0) + balance;
+  }
+  return CURRENCIES.filter((c) => c in totals).map((currency) => ({ currency, total: totals[currency] }));
+}
+
+// Every bank's balance converted to PKR and summed — used for the Dashboard's
+// "Bank balance" tile and "Net worth", where every currency should count.
+function getTotalBankBalancePKR() {
+  return getAllBankBalances().reduce((sum, { bank, balance }) => sum + convertToPKR(balance, bank.currency), 0);
+}
+
 async function addBankDeposit({ bankId, date, amount, notes }) {
   const entry = {
     id: genId(),
@@ -432,6 +504,12 @@ async function addBankWithdrawal({ bankId, date, amount, notes }) {
 
 async function transferFunds({ fromBankId, toBankId, date, amount, notes }) {
   if (fromBankId === toBankId) throw new Error('Choose two different banks to transfer between.');
+  const fromBank = cache.banks.find((b) => b.id === fromBankId);
+  const toBank = cache.banks.find((b) => b.id === toBankId);
+  if (!fromBank || !toBank) throw new Error('Bank not found.');
+  if (fromBank.currency !== toBank.currency) {
+    throw new Error(`Cannot transfer between different currencies (${fromBank.currency} → ${toBank.currency}). Only same-currency banks can transfer to each other.`);
+  }
   const linkedTransferId = genId();
   const trimmedNotes = notes?.trim() || '';
   const amt = Number(amount);
@@ -519,7 +597,16 @@ function listExpenses() {
   return [...cache.expenses].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
 }
 
+// Expenses are only ever denominated in PKR, so a linked bank must be too.
+function assertPKRBank(bankId, kind) {
+  if (!bankId) return;
+  const bank = cache.banks.find((b) => b.id === bankId);
+  if (!bank) throw new Error('Bank not found.');
+  if (bank.currency !== 'PKR') throw new Error(`${kind} can only be linked to a PKR bank account.`);
+}
+
 async function addExpense({ date, amount, placeId, categoryId, bankId, notes }) {
+  assertPKRBank(bankId, 'Expenses');
   const expense = {
     id: genId(),
     date,
@@ -537,6 +624,7 @@ async function addExpense({ date, amount, placeId, categoryId, bankId, notes }) 
 }
 
 async function updateExpense(id, { date, amount, placeId, categoryId, bankId, notes }) {
+  assertPKRBank(bankId, 'Expenses');
   const expense = cache.expenses.find((e) => e.id === id);
   if (!expense) throw new Error('Expense not found');
   Object.assign(expense, {
@@ -565,6 +653,7 @@ function listTransactions() {
 }
 
 async function addTransaction({ date, amount, profileId, type, bankId, notes }) {
+  assertPKRBank(bankId, 'Loans');
   const tx = {
     id: genId(),
     date,
@@ -582,6 +671,7 @@ async function addTransaction({ date, amount, profileId, type, bankId, notes }) 
 }
 
 async function updateTransaction(id, { date, amount, profileId, type, bankId, notes }) {
+  assertPKRBank(bankId, 'Loans');
   const tx = cache.transactions.find((t) => t.id === id);
   if (!tx) throw new Error('Transaction not found');
   Object.assign(tx, {
@@ -660,6 +750,10 @@ window.Storage = {
   forget,
   getMode,
   getFileName,
+  CURRENCIES,
+  getSettings,
+  updateSettings,
+  convertToPKR,
   listProfiles,
   addProfile,
   updateProfile,
@@ -676,6 +770,8 @@ window.Storage = {
   listBankTransactions,
   getBankBalance,
   getAllBankBalances,
+  getBalancesByCurrency,
+  getTotalBankBalancePKR,
   addBankDeposit,
   addBankWithdrawal,
   transferFunds,

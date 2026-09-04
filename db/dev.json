@@ -26,19 +26,35 @@
     {
       "id": "dev-b1",
       "name": "HBL",
+      "currency": "PKR",
       "createdAt": "2026-07-20T09:00:00.000Z"
     },
     {
       "id": "dev-b2",
       "name": "Meezan Bank",
+      "currency": "PKR",
       "createdAt": "2026-07-20T09:00:00.000Z"
     },
     {
       "id": "dev-b3",
       "name": "Cash",
+      "currency": "PKR",
       "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "dev-b4",
+      "name": "USD Account",
+      "currency": "USD",
+      "createdAt": "2026-07-28T08:00:00.000Z"
+    },
+    {
+      "id": "dev-b5",
+      "name": "EUR Account",
+      "currency": "EUR",
+      "createdAt": "2026-07-28T08:00:00.000Z"
     }
   ],
+  "settings": { "rates": { "USD": 3, "EUR": 3 } },
   "transactions": [
     {
       "id": "dev-t1",
@@ -327,6 +343,54 @@
       "linkedTransferId": null,
       "linkedExpenseId": null,
       "createdAt": "2026-08-26T10:26:34.389Z"
+    },
+    {
+      "id": "dev-bt-dep4",
+      "bankId": "dev-b4",
+      "date": "2026-07-28",
+      "type": "deposit",
+      "amount": 500,
+      "notes": "Opening balance",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-07-28T08:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-dep5",
+      "bankId": "dev-b4",
+      "date": "2026-08-14",
+      "type": "deposit",
+      "amount": 250,
+      "notes": "Freelance payment",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-14T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-dep6",
+      "bankId": "dev-b5",
+      "date": "2026-07-28",
+      "type": "deposit",
+      "amount": 300,
+      "notes": "Opening balance",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-07-28T08:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-wd2",
+      "bankId": "dev-b5",
+      "date": "2026-08-20",
+      "type": "withdrawal",
+      "amount": 50,
+      "notes": "ATM withdrawal",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-20T10:00:00.000Z"
     }
   ],
   "places": [

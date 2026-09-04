@@ -184,6 +184,7 @@ button {
 
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.live-rate { font-weight: 400; text-transform: none; letter-spacing: normal; }
 
 /* Inline checkbox row — label sits beside the box, not stacked above it. */
 .field-check { justify-content: flex-end; }
@@ -331,6 +332,7 @@ tfoot .total-value { color: var(--primary); font-size: 15px; font-weight: 700; }
 .pill.type-borrowed, .pill.type-repayment_received { background: var(--green-bg); color: var(--green); }
 .pill.type-deposit, .pill.type-transfer_in, .pill.type-loan_in { background: var(--green-bg); color: var(--green); }
 .pill.type-withdrawal, .pill.type-transfer_out, .pill.type-loan_out, .pill.type-expense_out { background: var(--red-bg); color: var(--red); }
+.pill.currency { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); }
 
 .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .filters select, .filters input { min-width: 140px; }
