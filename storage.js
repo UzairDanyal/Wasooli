@@ -8,10 +8,37 @@ const DB_STORE = 'handles';
 const HANDLE_KEY = 'dataFileHandle';
 const LOCAL_KEY = 'loan-app-data';
 
-const emptyData = () => ({ profiles: [], banks: [], transactions: [] });
+const emptyData = () => ({
+  profiles: [],
+  banks: [],
+  transactions: [],
+  bankTransactions: [],
+  places: [],
+  expenseCategories: [],
+  expenses: [],
+  assets: [],
+});
 
 function genId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// Every UI write path coerces amount to a Number before it reaches cache, but
+// data loaded from disk/localStorage/import comes from outside that path —
+// a hand-edited or externally-produced file could carry a quoted amount
+// (e.g. "500"), which would silently corrupt sums via string concatenation
+// (0 + "500" === "0500") wherever getBalance/getBankBalance use `+`.
+function coerceAmounts(data) {
+  for (const key of ['transactions', 'bankTransactions', 'expenses']) {
+    for (const item of data[key] || []) {
+      if (item && typeof item.amount !== 'number') item.amount = Number(item.amount) || 0;
+    }
+  }
+  for (const item of data.assets || []) {
+    if (item && typeof item.worth !== 'number') item.worth = Number(item.worth) || 0;
+    if (item && typeof item.notes !== 'string') item.notes = item.notes ? String(item.notes) : '';
+  }
+  return data;
 }
 
 // ---- tiny IndexedDB helper, just enough to remember the file handle ----
@@ -73,7 +100,7 @@ async function readHandle(handle) {
   if (!text.trim()) return emptyData();
   try {
     const parsed = JSON.parse(text);
-    return { ...emptyData(), ...parsed };
+    return coerceAmounts({ ...emptyData(), ...parsed });
   } catch (e) {
     throw new Error('data.json is not valid JSON — fix or replace it, then reload.');
   }
@@ -89,7 +116,7 @@ function readLocal() {
   const raw = localStorage.getItem(LOCAL_KEY);
   if (!raw) return emptyData();
   try {
-    return { ...emptyData(), ...JSON.parse(raw) };
+    return coerceAmounts({ ...emptyData(), ...JSON.parse(raw) });
   } catch {
     return emptyData();
   }
@@ -109,6 +136,7 @@ function writeLocal(data) {
 async function init() {
   if (!supportsFS) {
     cache = readLocal();
+    if (reconcileLoanLinkedBankTx()) await persist();
     return { connected: true, mode: 'local' };
   }
   try {
@@ -119,6 +147,7 @@ async function init() {
         fileHandle = handle;
         cache = await readHandle(handle);
         mode = 'fs';
+        if (reconcileLoanLinkedBankTx()) await persist();
         return { connected: true, mode: 'fs' };
       }
       fileHandle = handle;
@@ -137,6 +166,7 @@ async function reconnect() {
   if (!(await ensurePermission(fileHandle))) throw new Error('Permission denied.');
   cache = await readHandle(fileHandle);
   mode = 'fs';
+  if (reconcileLoanLinkedBankTx()) await persist();
   return cache;
 }
 
@@ -153,6 +183,7 @@ async function openExisting() {
   cache = await readHandle(handle);
   await idbSet(HANDLE_KEY, handle);
   mode = 'fs';
+  if (reconcileLoanLinkedBankTx()) await persist();
   return cache;
 }
 
@@ -235,15 +266,302 @@ async function updateBank(id, { name }) {
 }
 
 async function deleteBank(id) {
-  const inUse = cache.transactions.some((t) => t.bankId === id);
-  if (inUse) throw new Error('Cannot delete a bank used by existing transactions.');
+  const inUse = cache.bankTransactions.some((bt) => bt.bankId === id);
+  if (inUse) throw new Error('Cannot delete a bank with existing transactions. Remove them first.');
   cache.banks = cache.banks.filter((b) => b.id !== id);
+  await persist();
+}
+
+// -- Assets --
+// A flat, user-managed list of owned valuables (property, vehicles, gold,
+// investments) with a directly-editable worth — unlike bank balances, there's
+// no ledger behind it, so updating an asset just overwrites its worth.
+function listAssets() {
+  return [...cache.assets].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function addAsset({ name, worth, notes }) {
+  const asset = { id: genId(), name: name.trim(), worth: Number(worth) || 0, notes: notes.trim(), createdAt: new Date().toISOString() };
+  cache.assets.push(asset);
+  await persist();
+  return asset;
+}
+
+async function updateAsset(id, { name, worth, notes }) {
+  const a = cache.assets.find((a) => a.id === id);
+  if (!a) throw new Error('Asset not found');
+  a.name = name.trim();
+  a.worth = Number(worth) || 0;
+  a.notes = notes.trim();
+  await persist();
+  return a;
+}
+
+async function deleteAsset(id) {
+  cache.assets = cache.assets.filter((a) => a.id !== id);
+  await persist();
+}
+
+function getTotalAssetsWorth() {
+  return cache.assets.reduce((sum, a) => sum + a.worth, 0);
+}
+
+// -- Bank ledger --
+// Positive => money in. Negative => money out.
+function bankDelta(type, amount) {
+  if (type === 'deposit' || type === 'transfer_in' || type === 'loan_in') return amount;
+  if (type === 'withdrawal' || type === 'transfer_out' || type === 'loan_out' || type === 'expense_out') return -amount;
+  return 0;
+}
+
+// Which way a loan transaction moves cash through the bank it's tagged with.
+function bankTxTypeForLoan(loanType) {
+  if (loanType === 'lent' || loanType === 'repayment_made') return 'loan_out';
+  if (loanType === 'borrowed' || loanType === 'repayment_received') return 'loan_in';
+  return null;
+}
+
+function removeLinkedBankTx(loanTxId) {
+  cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.linkedLoanTxId !== loanTxId);
+}
+
+function addLinkedBankTx(loanTx) {
+  if (!loanTx.bankId) return;
+  const type = bankTxTypeForLoan(loanTx.type);
+  if (!type) return;
+  cache.bankTransactions.push({
+    id: genId(),
+    bankId: loanTx.bankId,
+    date: loanTx.date,
+    type,
+    amount: loanTx.amount,
+    notes: loanTx.notes || '',
+    linkedLoanTxId: loanTx.id,
+    linkedTransferId: null,
+    linkedExpenseId: null,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+function removeLinkedBankTxForExpense(expenseId) {
+  cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.linkedExpenseId !== expenseId);
+}
+
+function addLinkedBankTxForExpense(expense) {
+  if (!expense.bankId) return;
+  cache.bankTransactions.push({
+    id: genId(),
+    bankId: expense.bankId,
+    date: expense.date,
+    type: 'expense_out',
+    amount: expense.amount,
+    notes: expense.notes || '',
+    linkedLoanTxId: null,
+    linkedTransferId: null,
+    linkedExpenseId: expense.id,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+// Backfills bank-ledger entries for loan transactions that had a bankId set
+// before this feature existed (or came from an import). Returns true if it
+// added anything, so the caller knows whether to persist.
+function reconcileLoanLinkedBankTx() {
+  const linkedIds = new Set(cache.bankTransactions.filter((bt) => bt.linkedLoanTxId).map((bt) => bt.linkedLoanTxId));
+  let changed = false;
+  for (const tx of cache.transactions) {
+    if (tx.bankId && !linkedIds.has(tx.id) && bankTxTypeForLoan(tx.type)) {
+      addLinkedBankTx(tx);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function listBankTransactions(bankId) {
+  return cache.bankTransactions
+    .filter((bt) => bt.bankId === bankId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
+}
+
+function getBankBalance(bankId) {
+  return cache.bankTransactions
+    .filter((bt) => bt.bankId === bankId)
+    .reduce((sum, bt) => sum + bankDelta(bt.type, bt.amount), 0);
+}
+
+function getAllBankBalances() {
+  return cache.banks.map((b) => ({ bank: b, balance: getBankBalance(b.id) }));
+}
+
+async function addBankDeposit({ bankId, date, amount, notes }) {
+  const entry = {
+    id: genId(),
+    bankId,
+    date,
+    type: 'deposit',
+    amount: Number(amount),
+    notes: notes?.trim() || '',
+    linkedLoanTxId: null,
+    linkedTransferId: null,
+    linkedExpenseId: null,
+    createdAt: new Date().toISOString(),
+  };
+  cache.bankTransactions.push(entry);
+  await persist();
+  return entry;
+}
+
+async function addBankWithdrawal({ bankId, date, amount, notes }) {
+  const entry = {
+    id: genId(),
+    bankId,
+    date,
+    type: 'withdrawal',
+    amount: Number(amount),
+    notes: notes?.trim() || '',
+    linkedLoanTxId: null,
+    linkedTransferId: null,
+    linkedExpenseId: null,
+    createdAt: new Date().toISOString(),
+  };
+  cache.bankTransactions.push(entry);
+  await persist();
+  return entry;
+}
+
+async function transferFunds({ fromBankId, toBankId, date, amount, notes }) {
+  if (fromBankId === toBankId) throw new Error('Choose two different banks to transfer between.');
+  const linkedTransferId = genId();
+  const trimmedNotes = notes?.trim() || '';
+  const amt = Number(amount);
+  cache.bankTransactions.push(
+    { id: genId(), bankId: fromBankId, date, type: 'transfer_out', amount: amt, notes: trimmedNotes, linkedLoanTxId: null, linkedTransferId, linkedExpenseId: null, createdAt: new Date().toISOString() },
+    { id: genId(), bankId: toBankId, date, type: 'transfer_in', amount: amt, notes: trimmedNotes, linkedLoanTxId: null, linkedTransferId, linkedExpenseId: null, createdAt: new Date().toISOString() }
+  );
+  await persist();
+}
+
+async function deleteBankTransaction(id) {
+  const entry = cache.bankTransactions.find((bt) => bt.id === id);
+  if (!entry) return;
+  if (entry.linkedLoanTxId) throw new Error('This entry is linked to a loan — edit or delete it from the Loans tab.');
+  if (entry.linkedExpenseId) throw new Error('This entry is linked to an expense — edit or delete it from the Expenses tab.');
+  if (entry.linkedTransferId) {
+    cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.linkedTransferId !== entry.linkedTransferId);
+  } else {
+    cache.bankTransactions = cache.bankTransactions.filter((bt) => bt.id !== id);
+  }
+  await persist();
+}
+
+// -- Places --
+// A flat, user-managed list (e.g. "Place - Islamabad", "Place - Mardan").
+// Deliberately not nested under expense categories (and vice versa) — two
+// independent filters let you ask "all Mardan expenses" and "all Water
+// bills across every place" equally easily, which a category/subcategory
+// tree would make one of those two awkward.
+function listPlaces() {
+  return [...cache.places].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function addPlace({ name }) {
+  const place = { id: genId(), name: name.trim(), createdAt: new Date().toISOString() };
+  cache.places.push(place);
+  await persist();
+  return place;
+}
+
+async function updatePlace(id, { name }) {
+  const h = cache.places.find((h) => h.id === id);
+  if (!h) throw new Error('Place not found');
+  h.name = name.trim();
+  await persist();
+  return h;
+}
+
+async function deletePlace(id) {
+  const inUse = cache.expenses.some((e) => e.placeId === id);
+  if (inUse) throw new Error('Cannot delete a place with existing expenses. Remove them first.');
+  cache.places = cache.places.filter((h) => h.id !== id);
+  await persist();
+}
+
+// -- Expense categories --
+function listExpenseCategories() {
+  return [...cache.expenseCategories].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function addExpenseCategory({ name }) {
+  const category = { id: genId(), name: name.trim(), createdAt: new Date().toISOString() };
+  cache.expenseCategories.push(category);
+  await persist();
+  return category;
+}
+
+async function updateExpenseCategory(id, { name }) {
+  const c = cache.expenseCategories.find((c) => c.id === id);
+  if (!c) throw new Error('Category not found');
+  c.name = name.trim();
+  await persist();
+  return c;
+}
+
+async function deleteExpenseCategory(id) {
+  const inUse = cache.expenses.some((e) => e.categoryId === id);
+  if (inUse) throw new Error('Cannot delete a category with existing expenses. Remove them first.');
+  cache.expenseCategories = cache.expenseCategories.filter((c) => c.id !== id);
+  await persist();
+}
+
+// -- Expenses --
+function listExpenses() {
+  return [...cache.expenses].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
+}
+
+async function addExpense({ date, amount, placeId, categoryId, bankId, notes }) {
+  const expense = {
+    id: genId(),
+    date,
+    amount: Number(amount),
+    placeId: placeId || null,
+    categoryId: categoryId || null,
+    bankId: bankId || null,
+    notes: notes?.trim() || '',
+    createdAt: new Date().toISOString(),
+  };
+  cache.expenses.push(expense);
+  addLinkedBankTxForExpense(expense);
+  await persist();
+  return expense;
+}
+
+async function updateExpense(id, { date, amount, placeId, categoryId, bankId, notes }) {
+  const expense = cache.expenses.find((e) => e.id === id);
+  if (!expense) throw new Error('Expense not found');
+  Object.assign(expense, {
+    date,
+    amount: Number(amount),
+    placeId: placeId || null,
+    categoryId: categoryId || null,
+    bankId: bankId || null,
+    notes: notes?.trim() || '',
+  });
+  removeLinkedBankTxForExpense(id);
+  addLinkedBankTxForExpense(expense);
+  await persist();
+  return expense;
+}
+
+async function deleteExpense(id) {
+  cache.expenses = cache.expenses.filter((e) => e.id !== id);
+  removeLinkedBankTxForExpense(id);
   await persist();
 }
 
 // -- Transactions --
 function listTransactions() {
-  return [...cache.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return [...cache.transactions].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
 }
 
 async function addTransaction({ date, amount, profileId, type, bankId, notes }) {
@@ -258,6 +576,7 @@ async function addTransaction({ date, amount, profileId, type, bankId, notes }) 
     createdAt: new Date().toISOString(),
   };
   cache.transactions.push(tx);
+  addLinkedBankTx(tx);
   await persist();
   return tx;
 }
@@ -273,12 +592,15 @@ async function updateTransaction(id, { date, amount, profileId, type, bankId, no
     bankId: bankId || null,
     notes: notes?.trim() || '',
   });
+  removeLinkedBankTx(id);
+  addLinkedBankTx(tx);
   await persist();
   return tx;
 }
 
 async function deleteTransaction(id) {
   cache.transactions = cache.transactions.filter((t) => t.id !== id);
+  removeLinkedBankTx(id);
   await persist();
 }
 
@@ -323,7 +645,8 @@ function exportCSV() {
 
 async function importJSON(jsonText) {
   const parsed = JSON.parse(jsonText);
-  cache = { ...emptyData(), ...parsed };
+  cache = coerceAmounts({ ...emptyData(), ...parsed });
+  reconcileLoanLinkedBankTx();
   await persist();
   return cache;
 }
@@ -345,6 +668,30 @@ window.Storage = {
   addBank,
   updateBank,
   deleteBank,
+  listAssets,
+  addAsset,
+  updateAsset,
+  deleteAsset,
+  getTotalAssetsWorth,
+  listBankTransactions,
+  getBankBalance,
+  getAllBankBalances,
+  addBankDeposit,
+  addBankWithdrawal,
+  transferFunds,
+  deleteBankTransaction,
+  listPlaces,
+  addPlace,
+  updatePlace,
+  deletePlace,
+  listExpenseCategories,
+  addExpenseCategory,
+  updateExpenseCategory,
+  deleteExpenseCategory,
+  listExpenses,
+  addExpense,
+  updateExpense,
+  deleteExpense,
   listTransactions,
   addTransaction,
   updateTransaction,

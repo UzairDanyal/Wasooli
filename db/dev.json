@@ -1,0 +1,448 @@
+{
+  "profiles": [
+    {
+      "id": "dev-p1",
+      "name": "Ali Raza",
+      "contact": "0300-1234567",
+      "email": "ali.raza@example.com",
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "dev-p2",
+      "name": "Sara Ahmed",
+      "contact": "0301-2345678",
+      "email": "sara.ahmed@example.com",
+      "createdAt": "2026-07-20T09:05:00.000Z"
+    },
+    {
+      "id": "dev-p3",
+      "name": "Bilal Hussain",
+      "contact": "",
+      "email": "",
+      "createdAt": "2026-07-20T09:10:00.000Z"
+    }
+  ],
+  "banks": [
+    {
+      "id": "dev-b1",
+      "name": "HBL",
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "dev-b2",
+      "name": "Meezan Bank",
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    },
+    {
+      "id": "dev-b3",
+      "name": "Cash",
+      "createdAt": "2026-07-20T09:00:00.000Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "dev-t1",
+      "date": "2026-08-01",
+      "amount": 5000,
+      "profileId": "dev-p1",
+      "type": "lent",
+      "bankId": "dev-b1",
+      "notes": "Lent for emergency",
+      "createdAt": "2026-08-01T10:00:00.000Z"
+    },
+    {
+      "id": "dev-t2",
+      "date": "2026-08-05",
+      "amount": 10000,
+      "profileId": "dev-p2",
+      "type": "borrowed",
+      "bankId": "dev-b2",
+      "notes": "Borrowed for rent",
+      "createdAt": "2026-08-05T10:00:00.000Z"
+    },
+    {
+      "id": "dev-t3",
+      "date": "2026-08-10",
+      "amount": 2000,
+      "profileId": "dev-p1",
+      "type": "repayment_received",
+      "bankId": "dev-b1",
+      "notes": "Partial repayment",
+      "createdAt": "2026-08-10T10:00:00.000Z"
+    },
+    {
+      "id": "dev-t4",
+      "date": "2026-08-15",
+      "amount": 3000,
+      "profileId": "dev-p3",
+      "type": "lent",
+      "bankId": "dev-b3",
+      "notes": "",
+      "createdAt": "2026-08-15T10:00:00.000Z"
+    },
+    {
+      "id": "dev-t5",
+      "date": "2026-08-20",
+      "amount": 4000,
+      "profileId": "dev-p2",
+      "type": "repayment_made",
+      "bankId": "dev-b2",
+      "notes": "Paid back part of loan",
+      "createdAt": "2026-08-20T10:00:00.000Z"
+    },
+    {
+      "id": "dev-t6",
+      "date": "2026-08-22",
+      "amount": 1000,
+      "profileId": "dev-p3",
+      "type": "repayment_received",
+      "bankId": null,
+      "notes": "Cash in hand, not tracked",
+      "createdAt": "2026-08-22T10:00:00.000Z"
+    },
+    {
+      "id": "mt9t57l8-h5uw3gw",
+      "date": "2026-08-26",
+      "amount": 35110,
+      "profileId": "dev-p1",
+      "type": "repayment_received",
+      "bankId": "dev-b1",
+      "notes": "",
+      "createdAt": "2026-08-26T08:04:05.420Z"
+    }
+  ],
+  "bankTransactions": [
+    {
+      "id": "dev-bt-dep1",
+      "bankId": "dev-b1",
+      "date": "2026-07-25",
+      "type": "deposit",
+      "amount": 20000,
+      "notes": "Opening balance",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-07-25T08:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-dep2",
+      "bankId": "dev-b2",
+      "date": "2026-07-25",
+      "type": "deposit",
+      "amount": 15000,
+      "notes": "Opening balance",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-07-25T08:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-dep3",
+      "bankId": "dev-b3",
+      "date": "2026-07-25",
+      "type": "deposit",
+      "amount": 5000,
+      "notes": "Cash on hand",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-07-25T08:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-wd1",
+      "bankId": "dev-b1",
+      "date": "2026-08-12",
+      "type": "withdrawal",
+      "amount": 1000,
+      "notes": "ATM withdrawal",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-08-12T11:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-tout1",
+      "bankId": "dev-b1",
+      "date": "2026-08-18",
+      "type": "transfer_out",
+      "amount": 3000,
+      "notes": "Moving funds",
+      "linkedLoanTxId": null,
+      "linkedTransferId": "dev-transfer-1",
+      "createdAt": "2026-08-18T12:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-tin1",
+      "bankId": "dev-b2",
+      "date": "2026-08-18",
+      "type": "transfer_in",
+      "amount": 3000,
+      "notes": "Moving funds",
+      "linkedLoanTxId": null,
+      "linkedTransferId": "dev-transfer-1",
+      "createdAt": "2026-08-18T12:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-loan1",
+      "bankId": "dev-b1",
+      "date": "2026-08-01",
+      "type": "loan_out",
+      "amount": 5000,
+      "notes": "Lent for emergency",
+      "linkedLoanTxId": "dev-t1",
+      "linkedTransferId": null,
+      "createdAt": "2026-08-01T10:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-loan2",
+      "bankId": "dev-b2",
+      "date": "2026-08-05",
+      "type": "loan_in",
+      "amount": 10000,
+      "notes": "Borrowed for rent",
+      "linkedLoanTxId": "dev-t2",
+      "linkedTransferId": null,
+      "createdAt": "2026-08-05T10:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-loan3",
+      "bankId": "dev-b1",
+      "date": "2026-08-10",
+      "type": "loan_in",
+      "amount": 2000,
+      "notes": "Partial repayment",
+      "linkedLoanTxId": "dev-t3",
+      "linkedTransferId": null,
+      "createdAt": "2026-08-10T10:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-loan4",
+      "bankId": "dev-b3",
+      "date": "2026-08-15",
+      "type": "loan_out",
+      "amount": 3000,
+      "notes": "",
+      "linkedLoanTxId": "dev-t4",
+      "linkedTransferId": null,
+      "createdAt": "2026-08-15T10:00:00.000Z"
+    },
+    {
+      "id": "mt9s66vc-ymtr8vh",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "deposit",
+      "amount": 80000,
+      "notes": "credited by Babress",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-08-26T07:36:51.528Z"
+    },
+    {
+      "id": "mt9s6rhh-afa6arc",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "deposit",
+      "amount": 1000,
+      "notes": "credit by me",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "createdAt": "2026-08-26T07:37:18.245Z"
+    },
+    {
+      "id": "dev-bt-exp1",
+      "bankId": "dev-b1",
+      "date": "2026-08-03",
+      "type": "expense_out",
+      "amount": 1200,
+      "notes": "Islamabad water bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex1",
+      "createdAt": "2026-08-03T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp2",
+      "bankId": "dev-b1",
+      "date": "2026-08-05",
+      "type": "expense_out",
+      "amount": 900,
+      "notes": "Mardan water bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex2",
+      "createdAt": "2026-08-05T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp3",
+      "bankId": "dev-b3",
+      "date": "2026-08-10",
+      "type": "expense_out",
+      "amount": 4500,
+      "notes": "Islamabad electricity bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex3",
+      "createdAt": "2026-08-10T09:00:00.000Z"
+    },
+    {
+      "id": "dev-bt-exp4",
+      "bankId": "dev-b1",
+      "date": "2026-08-12",
+      "type": "expense_out",
+      "amount": 3800,
+      "notes": "Mardan electricity bill",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "dev-ex4",
+      "createdAt": "2026-08-12T09:00:00.000Z"
+    },
+    {
+      "id": "mt9uzukf-uxpmfj2",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "expense_out",
+      "amount": 88,
+      "notes": "",
+      "linkedLoanTxId": null,
+      "linkedTransferId": null,
+      "linkedExpenseId": "mt9uzukf-vsn0ly6",
+      "createdAt": "2026-08-26T08:55:54.495Z"
+    },
+    {
+      "id": "mt9y53gl-8cf0wqq",
+      "bankId": "dev-b1",
+      "date": "2026-08-26",
+      "type": "loan_in",
+      "amount": 35110,
+      "notes": "",
+      "linkedLoanTxId": "mt9t57l8-h5uw3gw",
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-26T10:23:58.149Z"
+    },
+    {
+      "id": "mt9y8g0l-dd7trkr",
+      "bankId": "dev-b2",
+      "date": "2026-08-20",
+      "type": "loan_out",
+      "amount": 4000,
+      "notes": "Paid back part of loan",
+      "linkedLoanTxId": "dev-t5",
+      "linkedTransferId": null,
+      "linkedExpenseId": null,
+      "createdAt": "2026-08-26T10:26:34.389Z"
+    }
+  ],
+  "places": [
+    {
+      "id": "dev-h1",
+      "name": "Home - Islamabad",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-h2",
+      "name": "Home - Mardan",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    }
+  ],
+  "expenseCategories": [
+    {
+      "id": "dev-c1",
+      "name": "Water",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-c2",
+      "name": "Electricity",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "dev-c3",
+      "name": "Groceries",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    },
+    {
+      "id": "mt9tzovd-spkiro6",
+      "name": "k",
+      "createdAt": "2026-08-26T08:27:47.497Z"
+    },
+    {
+      "id": "mt9tzr9p-iwq5qb8",
+      "name": "k -edit",
+      "createdAt": "2026-08-26T08:27:50.605Z"
+    },
+    {
+      "id": "mt9tztl4-4qf7n91",
+      "name": "k",
+      "createdAt": "2026-08-26T08:27:53.608Z"
+    },
+    {
+      "id": "mt9tzygj-dfmmt8j",
+      "name": "j",
+      "createdAt": "2026-08-26T08:27:59.923Z"
+    },
+    {
+      "id": "mt9u00gv-at1bxo7",
+      "name": "h",
+      "createdAt": "2026-08-26T08:28:02.527Z"
+    }
+  ],
+  "expenses": [
+    {
+      "id": "dev-ex1",
+      "date": "2026-08-03",
+      "amount": 1200,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c1",
+      "bankId": "dev-b1",
+      "notes": "Islamabad water bill",
+      "createdAt": "2026-08-03T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex2",
+      "date": "2026-08-05",
+      "amount": 900,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c1",
+      "bankId": "dev-b1",
+      "notes": "Mardan water bill",
+      "createdAt": "2026-08-05T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex3",
+      "date": "2026-08-10",
+      "amount": 4500,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b3",
+      "notes": "Islamabad electricity bill",
+      "createdAt": "2026-08-10T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex4",
+      "date": "2026-08-12",
+      "amount": 3800,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b1",
+      "notes": "Mardan electricity bill",
+      "createdAt": "2026-08-12T09:00:00.000Z"
+    },
+    {
+      "id": "dev-ex5",
+      "date": "2026-08-15",
+      "amount": 6000,
+      "placeId": "dev-h2",
+      "categoryId": "dev-c3",
+      "bankId": null,
+      "notes": "Groceries for parents, paid cash in hand",
+      "createdAt": "2026-08-15T09:00:00.000Z"
+    },
+    {
+      "id": "mt9uzukf-vsn0ly6",
+      "date": "2026-08-26",
+      "amount": 88,
+      "placeId": "dev-h1",
+      "categoryId": "dev-c2",
+      "bankId": "dev-b1",
+      "notes": "",
+      "createdAt": "2026-08-26T08:55:54.495Z"
+    }
+  ]
+}
