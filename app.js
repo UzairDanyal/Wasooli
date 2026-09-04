@@ -42,6 +42,52 @@ function reminderMessage(name, amount) {
   return `Hi *${name}*, hope you're doing well! Just a friendly reminder that you currently owe PKR ${formatted}. Whenever it's convenient, please send it over. Thanks!\n\n*Sent via Konto*`;
 }
 
+// One template per loan type. `accountLabel` follows the direction of the
+// cash: "From account" when the money left our bank, "Into account" when it
+// landed there — so the profile reads it the same way we recorded it.
+const LOAN_MESSAGE_RULES = {
+  lent: {
+    accountLabel: 'From account',
+    lead: (amt) => `I've sent you *PKR ${amt}* as a loan. 🤝`,
+  },
+  borrowed: {
+    accountLabel: 'Into account',
+    lead: (amt) => `Thank you — I've received *PKR ${amt}* from you as a loan. 🙏`,
+  },
+  repayment_received: {
+    accountLabel: 'Into account',
+    lead: (amt) => `Payment received, thank you! ✅ Your repayment of *PKR ${amt}* has been recorded.`,
+  },
+  repayment_made: {
+    accountLabel: 'From account',
+    lead: (amt) => `I've sent you *PKR ${amt}* against what I owe you. ✅`,
+  },
+};
+
+// Storage.getBalance is positive when the profile owes us, negative when we
+// owe them — spell that direction out rather than sending a bare signed number.
+function balanceLine(balance) {
+  const amt = Math.round(Math.abs(balance)).toLocaleString();
+  if (balance > 0.004) return `*Total balance:* PKR ${amt} (you owe me)`;
+  if (balance < -0.004) return `*Total balance:* PKR ${amt} (I owe you)`;
+  return `*Total balance:* PKR 0 — we're all settled ✅`;
+}
+
+function loanEntryMessage({ type, name, amount, bankName, notes, date, balance }) {
+  const rule = LOAN_MESSAGE_RULES[type];
+  if (!rule) return null;
+  const lines = [`Hi *${name}*,`, '', rule.lead(Math.round(amount).toLocaleString()), ''];
+  // Account and description are only in the message when they were filled in.
+  if (bankName) lines.push(`*${rule.accountLabel}:* ${bankName}`);
+  if (notes) lines.push(`*Description:* ${notes}`);
+  lines.push(`*Date:* ${formatDate(date)}`, '', balanceLine(balance), '', '*Sent via Konto*');
+  return lines.join('\n');
+}
+
+function whatsAppSendUrl(number, message) {
+  return `https://web.whatsapp.com/send?phone=${number}&text=${encodeURIComponent(message)}`;
+}
+
 // Logo mark — rounded badge + "K" monogram, same line-icon style as the ICON_* set above.
 const LOGO_MARK = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M9 6v12M9 12l6-6M9 12l6 6"/></svg>';
 
@@ -55,6 +101,13 @@ function submitBtn(isEditing, addLabel, disabled) {
 const money = (n) => {
   const abs = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${n < 0 ? '-' : ''}${abs}`;
+};
+
+// Dashboard figures only — rounded to whole units. The trailing ".00" on every
+// tile is noise at a glance; the ledgers keep money() and its exact paise.
+const moneyWhole = (n) => {
+  const abs = Math.round(Math.abs(n)).toLocaleString();
+  return `${n <= -0.5 ? '-' : ''}${abs}`;
 };
 
 // Indian/Pakistani numbering (lac, crore) spelled out — used as a hover
@@ -108,7 +161,13 @@ let editingAssetId = null;
 let editingExpenseId = null;
 let editingPlaceId = null;
 let editingCategoryId = null;
-let expenseBreakdownBy = 'categoryId'; // 'categoryId' | 'placeId'
+let expenseBreakdownBy = 'placeId'; // 'placeId' | 'categoryId'
+
+// Place/category filters on the Expenses view accept several picks at once; an
+// empty set means "all", so no selection still shows everything. Held here
+// rather than read off the DOM because a full render() (after adding an
+// expense, say) rebuilds the filter bar and would otherwise drop the picks.
+const expenseFilter = { places: new Set(), categories: new Set() };
 
 // ---------------- Pagination ----------------
 // One page-state slot per table; shared helpers slice the list and render a
@@ -151,6 +210,51 @@ function paginationBar(key, total, page, totalPages) {
 
 function optionsHtml(items, selectedId) {
   return items.map((i) => `<option value="${i.id}" ${i.id === selectedId ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
+}
+
+// ---------------- Multi-select filter ----------------
+// A button + checkbox panel rather than <select multiple>: the native control
+// needs ctrl/cmd-click to pick more than one, and can't show an "all" state.
+
+const ICON_CHEVRON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+function multiSelectLabel(key, items, selected) {
+  const allLabel = key === 'places' ? 'All places' : 'All categories';
+  if (!selected.size) return allLabel;
+  if (selected.size === 1) return items.find((i) => selected.has(i.id))?.name || allLabel;
+  return `${selected.size} ${key}`;
+}
+
+function multiSelectHtml(key, items, selected) {
+  const opts = items
+    .map((i) => `<label class="ms-option"><input type="checkbox" value="${i.id}" ${selected.has(i.id) ? 'checked' : ''}><span>${esc(i.name)}</span></label>`)
+    .join('');
+  return `
+    <div class="multiselect ${selected.size ? 'active' : ''}" data-ms="${key}">
+      <button type="button" class="ms-toggle" aria-expanded="false">
+        <span class="ms-label">${esc(multiSelectLabel(key, items, selected))}</span>${ICON_CHEVRON}
+      </button>
+      <div class="ms-panel" hidden>
+        ${items.length ? opts : '<div class="ms-empty">Nothing to filter by yet.</div>'}
+        <button type="button" class="ms-clear" ${selected.size ? '' : 'disabled'}>Clear</button>
+      </div>
+    </div>`;
+}
+
+function syncMultiSelect(ms) {
+  const key = ms.dataset.ms;
+  const selected = expenseFilter[key];
+  const items = key === 'places' ? Storage.listPlaces() : Storage.listExpenseCategories();
+  $('.ms-label', ms).textContent = multiSelectLabel(key, items, selected);
+  $('.ms-clear', ms).disabled = !selected.size;
+  ms.classList.toggle('active', selected.size > 0);
+}
+
+function closeMultiSelects() {
+  $$('.multiselect').forEach((ms) => {
+    $('.ms-panel', ms).hidden = true;
+    $('.ms-toggle', ms).setAttribute('aria-expanded', 'false');
+  });
 }
 
 function toast(msg, isError = false) {
@@ -325,6 +429,34 @@ function render() {
 
 // ---------------- Dashboard ----------------
 
+// Per-profile net balance cards. Lives on the Loans page — the dashboard keeps
+// only the "Owed to you" / "You owe" totals, which is the altitude it wants.
+function renderBalanceCards() {
+  const balances = Storage.getAllBalances();
+  if (!balances.length) return `<div class="empty-state">No profiles yet. Add one in the Profiles tab.</div>`;
+  // A settled profile carries no information, so it's dropped entirely rather
+  // than shown as a "0 / settled up" card taking up a slot in the grid.
+  const open = balances.filter(({ balance }) => Math.abs(balance) > 0.004);
+  if (!open.length) return `<div class="empty-state">All settled up — no outstanding balances.</div>`;
+  return open
+    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
+    .map(({ profile, balance }) => {
+      const cls = balance > 0 ? 'owes-me' : 'i-owe';
+      const status = balance > 0 ? 'owes you' : 'you owe';
+      const remindBtn = balance > 0
+        ? `<button class="btn btn-sm btn-icon remind-btn" data-action="remind-profile" data-id="${profile.id}" title="Send WhatsApp reminder">${ICON_REMIND}</button>`
+        : '';
+      return `
+      <div class="balance-card ${cls}">
+        ${remindBtn}
+        <div class="name">${esc(profile.name)}</div>
+        <div class="amount" title="${moneyWords(balance)}">${moneyWhole(Math.abs(balance))}</div>
+        <div class="status">${status}</div>
+      </div>`;
+    })
+    .join('');
+}
+
 function renderDashboard() {
   const balances = Storage.getAllBalances();
   const owedToMe = balances.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
@@ -337,63 +469,42 @@ function renderDashboard() {
     .filter((e) => e.date.slice(0, 7) === thisMonth)
     .reduce((s, e) => s + e.amount, 0);
 
-  const cards = balances.length
-    ? balances
-        .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
-        .map(({ profile, balance }) => {
-          const cls = balance > 0.004 ? 'owes-me' : balance < -0.004 ? 'i-owe' : 'settled';
-          const status = balance > 0.004 ? 'owes you' : balance < -0.004 ? 'you owe' : 'settled up';
-          const remindBtn = balance > 0.004
-            ? `<button class="btn btn-sm btn-icon remind-btn" data-action="remind-profile" data-id="${profile.id}" title="Send WhatsApp reminder">${ICON_REMIND}</button>`
-            : '';
-          return `
-          <div class="balance-card ${cls}">
-            ${remindBtn}
-            <div class="name">${esc(profile.name)}</div>
-            <div class="amount" title="${moneyWords(balance)}">${money(Math.abs(balance))}</div>
-            <div class="status">${status}</div>
-          </div>`;
-        })
-        .join('')
-    : `<div class="empty-state">No profiles yet. Add one in the Profiles tab.</div>`;
-
   return `
     <div class="view">
       <h2>Dashboard</h2>
-      <p class="view-sub">Net balances across everyone you lend to or borrow from.</p>
+      <p class="view-sub">Your money at a glance — banks, assets, loans and spending.</p>
 
       <div class="net-worth-card" title="Owed to you + Bank balance + Assets worth − You owe">
         <div class="label">Net worth</div>
-        <div class="value" title="${moneyWords(netWorth)}">${money(netWorth)}</div>
+        <div class="value" title="${moneyWords(netWorth)}">${moneyWhole(netWorth)}</div>
       </div>
 
       <h3 class="dash-section-title">Bank</h3>
       <div class="summary-row">
-        <div class="summary-card" title="Combined balance across all your bank accounts."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${money(totalBankBalance)}</div></div>
-        <div class="summary-card" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today."><div class="label">Net position</div><div class="value" title="${moneyWords(totalBankBalance + owedToMe - iOwe)}">${money(totalBankBalance + owedToMe - iOwe)}</div></div>
+        <div class="summary-card featured ${totalBankBalance < -0.004 ? 'neg' : 'pos'}" data-nav="banks" title="Combined balance across all your bank accounts. Double-click to open Banks."><div class="label">Bank balance</div><div class="value" title="${moneyWords(totalBankBalance)}">${moneyWhole(totalBankBalance)}</div></div>
+        <div class="summary-card" data-nav="banks" title="Bank balance + Owed to you − You owe — what you'd be left holding if every loan settled today. Double-click to open Banks."><div class="label">Net position</div><div class="value" title="${moneyWords(totalBankBalance + owedToMe - iOwe)}">${moneyWhole(totalBankBalance + owedToMe - iOwe)}</div></div>
       </div>
 
       <hr class="dash-divider">
 
       <h3 class="dash-section-title">Assets</h3>
       <div class="summary-row">
-        <div class="summary-card" title="Combined worth of everything logged in the Assets tab."><div class="label">Assets worth</div><div class="value" title="${moneyWords(totalAssetsWorth)}">${money(totalAssetsWorth)}</div></div>
+        <div class="summary-card" data-nav="assets" title="Combined worth of everything logged in the Assets tab. Double-click to open Assets."><div class="label">Assets worth</div><div class="value" title="${moneyWords(totalAssetsWorth)}">${moneyWhole(totalAssetsWorth)}</div></div>
       </div>
 
       <hr class="dash-divider">
 
       <h3 class="dash-section-title">Loan</h3>
       <div class="summary-row">
-        <div class="summary-card green" title="Total across everyone who owes you money."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${money(owedToMe)}</div></div>
-        <div class="summary-card red" title="Total across everyone you owe money to."><div class="label">You owe</div><div class="value" title="${moneyWords(iOwe)}">${money(iOwe)}</div></div>
+        <div class="summary-card green" data-nav="transactions" title="Total across everyone who owes you money. Double-click to open Loans."><div class="label">Owed to you</div><div class="value" title="${moneyWords(owedToMe)}">${moneyWhole(owedToMe)}</div></div>
+        <div class="summary-card red" data-nav="transactions" title="Total across everyone you owe money to. Double-click to open Loans."><div class="label">You owe</div><div class="value" title="${moneyWords(iOwe)}">${moneyWhole(iOwe)}</div></div>
       </div>
-      <div class="balance-grid">${cards}</div>
 
       <hr class="dash-divider">
 
       <h3 class="dash-section-title">Expense</h3>
       <div class="summary-row">
-        <div class="summary-card red" title="Total expenses logged so far this calendar month."><div class="label">Expenses this month</div><div class="value" title="${moneyWords(expensesThisMonth)}">${money(expensesThisMonth)}</div></div>
+        <div class="summary-card red" data-nav="expenses" title="Total expenses logged so far this calendar month. Double-click to open Expenses."><div class="label">Expenses this month</div><div class="value" title="${moneyWords(expensesThisMonth)}">${moneyWhole(expensesThisMonth)}</div></div>
       </div>
     </div>`;
 }
@@ -456,11 +567,23 @@ function renderTransactions() {
             </div>
             <div class="field"><label>Bank</label><select name="bankId"><option value="">— none —</option>${bankOptions}</select></div>
             <div class="field" style="grid-column: 1 / -1;"><label>Notes</label><input type="text" name="notes" placeholder="Optional" value="${editingTx ? esc(editingTx.notes || '') : ''}"></div>
+            ${
+              editingTx
+                ? ''
+                : `<div class="field field-check" style="grid-column: 1 / -1;">
+                     <label><input type="checkbox" name="notify" checked> Send a WhatsApp confirmation to the profile</label>
+                   </div>`
+            }
           </div>
           ${submitBtn(!!editingTx, 'Add transaction', !profiles.length)}
           ${editingTx ? '<button type="button" class="btn" id="btn-cancel-tx-edit">Cancel</button>' : ''}
         </form>
       </div>
+
+      <h3 class="dash-section-title">Balance by profile</h3>
+      <div class="balance-grid" style="margin-bottom:24px;">${renderBalanceCards()}</div>
+
+      <hr class="dash-divider">
 
       <div class="filters">
         <input type="search" id="filter-search" placeholder="Search by profile or notes...">
@@ -875,8 +998,10 @@ function renderExpenses() {
   const bankOptions = optionsHtml(banks, editingExpense?.bankId);
   const canAddExpense = places.length && categories.length;
 
-  const filterPlaceOptions = `<option value="">All places</option>` + places.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join('');
-  const filterCategoryOptions = `<option value="">All categories</option>` + categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  // A place/category deleted while it was filtered on would otherwise sit in
+  // the set forever, silently matching nothing.
+  expenseFilter.places.forEach((id) => places.some((p) => p.id === id) || expenseFilter.places.delete(id));
+  expenseFilter.categories.forEach((id) => categories.some((c) => c.id === id) || expenseFilter.categories.delete(id));
 
   // Table rows and pagination are populated by applyExpenseFilters(), called
   // unconditionally right after this view attaches (see attachViewHandlers) —
@@ -905,8 +1030,8 @@ function renderExpenses() {
 
       <div class="filters">
         <input type="search" id="filter-expense-search" placeholder="Search by notes...">
-        <select id="filter-place">${filterPlaceOptions}</select>
-        <select id="filter-category">${filterCategoryOptions}</select>
+        ${multiSelectHtml('places', places, expenseFilter.places)}
+        ${multiSelectHtml('categories', categories, expenseFilter.categories)}
         <input type="date" id="filter-date-from" title="From date" value="${firstOfMonthISO()}">
         <input type="date" id="filter-date-to" title="To date" value="${todayISO()}">
       </div>
@@ -1000,7 +1125,46 @@ function renderSettings() {
 
 // ---------------- Handlers ----------------
 
+// Points the tab pre-opened by the loan form at WhatsApp, with the message for
+// this entry's type filled in. The balance quoted is the one *after* the entry,
+// so it matches what the Loans tab now shows.
+function openLoanEntryMessage(tab, tx) {
+  const profile = Storage.listProfiles().find((p) => p.id === tx.profileId);
+  const number = profile && toWhatsAppNumber(profile.contact);
+  if (!number) {
+    tab?.close();
+    toast(`Saved — but ${profile ? profile.name : 'this profile'} has no phone number to message.`, true);
+    return;
+  }
+  const message = loanEntryMessage({
+    type: tx.type,
+    name: profile.name,
+    amount: tx.amount,
+    bankName: Storage.listBanks().find((b) => b.id === tx.bankId)?.name,
+    notes: tx.notes,
+    date: tx.date,
+    balance: Storage.getBalance(tx.profileId),
+  });
+  if (!message) {
+    tab?.close();
+    return;
+  }
+  const url = whatsAppSendUrl(number, message);
+  // tab is null only if a popup blocker refused it — try once more directly.
+  if (tab) tab.location.href = url;
+  else window.open(url, '_blank', 'noopener');
+}
+
 function attachViewHandlers() {
+  // Double-click a dashboard tile to open the module behind it — same idiom as
+  // double-clicking a row in the Banks table. Bound to .view rather than the
+  // stable #view-root: this runs after every render, and only a node that gets
+  // replaced each time drops its old listener with it.
+  $('.view')?.addEventListener('dblclick', (e) => {
+    const card = e.target.closest('[data-nav]');
+    if (card) setView(card.dataset.nav);
+  });
+
   $('.balance-grid')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action="remind-profile"]');
     if (!btn) return;
@@ -1015,8 +1179,7 @@ function attachViewHandlers() {
     // web.whatsapp.com/send opens WhatsApp Web directly with the chat and
     // message pre-filled; wa.me instead shows an intermediate landing page
     // ("Open app" / "Continue to WhatsApp Web") before getting there.
-    const url = `https://web.whatsapp.com/send?phone=${number}&text=${encodeURIComponent(reminderMessage(profile.name, balance))}`;
-    window.open(url, '_blank', 'noopener');
+    window.open(whatsAppSendUrl(number, reminderMessage(profile.name, balance)), '_blank', 'noopener');
   });
 
   const txForm = $('#tx-form');
@@ -1032,17 +1195,25 @@ function attachViewHandlers() {
         bankId: fd.get('bankId'),
         notes: fd.get('notes'),
       };
+      // Opened up-front, while the submit gesture is still live: once the
+      // await below breaks the user-gesture chain browsers block window.open.
+      // (No 'noopener' here — that makes window.open return null, and the tab
+      // handle is what we redirect to WhatsApp after the save succeeds.)
+      const notify = !editingTxId && fd.get('notify') === 'on';
+      const waTab = notify ? window.open('', '_blank') : null;
       try {
         if (editingTxId) {
           await Storage.updateTransaction(editingTxId, fields);
           toast('Transaction updated.');
         } else {
-          await Storage.addTransaction(fields);
+          const tx = await Storage.addTransaction(fields);
           toast('Transaction added.');
+          if (notify) openLoanEntryMessage(waTab, tx);
         }
         editingTxId = null;
         render();
       } catch (err) {
+        waTab?.close();
         toast(err.message, true);
       }
     });
@@ -1515,15 +1686,11 @@ function attachViewHandlers() {
   });
 
   const expenseSearch = $('#filter-expense-search');
-  const filterPlace = $('#filter-place');
-  const filterCategory = $('#filter-category');
   const filterDateFrom = $('#filter-date-from');
   const filterDateTo = $('#filter-date-to');
   const applyExpenseFilters = (resetPage) => {
     if (resetPage) pagination.expenses.page = 1;
     const q = expenseSearch?.value.trim().toLowerCase();
-    const placeId = filterPlace?.value;
-    const categoryId = filterCategory?.value;
     const from = filterDateFrom?.value;
     const to = filterDateTo?.value;
     const places = Storage.listPlaces();
@@ -1531,8 +1698,9 @@ function attachViewHandlers() {
     const banks = Storage.listBanks();
     const filtered = Storage.listExpenses().filter((ex) => {
       const matchQ = !q || (ex.notes || '').toLowerCase().includes(q);
-      const matchPlace = !placeId || ex.placeId === placeId;
-      const matchCategory = !categoryId || ex.categoryId === categoryId;
+      // An empty set is "all" — otherwise it's an OR across the ticked boxes.
+      const matchPlace = !expenseFilter.places.size || expenseFilter.places.has(ex.placeId);
+      const matchCategory = !expenseFilter.categories.size || expenseFilter.categories.has(ex.categoryId);
       const matchFrom = !from || ex.date >= from;
       const matchTo = !to || ex.date <= to;
       return matchQ && matchPlace && matchCategory && matchFrom && matchTo;
@@ -1547,10 +1715,37 @@ function attachViewHandlers() {
     if (overview) overview.innerHTML = renderExpenseOverviewContent(filtered);
   };
   expenseSearch?.addEventListener('input', () => applyExpenseFilters(true));
-  filterPlace?.addEventListener('change', () => applyExpenseFilters(true));
-  filterCategory?.addEventListener('change', () => applyExpenseFilters(true));
   filterDateFrom?.addEventListener('change', () => applyExpenseFilters(true));
   filterDateTo?.addEventListener('change', () => applyExpenseFilters(true));
+
+  // Each .multiselect is rebuilt by render(), so its listeners go with it — only
+  // the document-level outside-click/Escape pair (bound once at init) persists.
+  $$('.multiselect').forEach((ms) => {
+    const selected = expenseFilter[ms.dataset.ms];
+    const panel = $('.ms-panel', ms);
+    const toggle = $('.ms-toggle', ms);
+    toggle.addEventListener('click', () => {
+      const wasOpen = !panel.hidden;
+      closeMultiSelects();
+      if (wasOpen) return;
+      panel.hidden = false;
+      toggle.setAttribute('aria-expanded', 'true');
+    });
+    panel.addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      if (cb.checked) selected.add(cb.value);
+      else selected.delete(cb.value);
+      syncMultiSelect(ms);
+      applyExpenseFilters(true);
+    });
+    $('.ms-clear', ms).addEventListener('click', () => {
+      selected.clear();
+      $$('input[type="checkbox"]', panel).forEach((cb) => (cb.checked = false));
+      syncMultiSelect(ms);
+      applyExpenseFilters(true);
+    });
+  });
 
   // Delegated on the stable #expense-overview container (not the toggle
   // buttons themselves — applyExpenseFilters replaces their innerHTML on
@@ -1687,5 +1882,13 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#sidebar-backdrop')?.classList.toggle('open');
   });
   $('#sidebar-backdrop')?.addEventListener('click', closeMobileSidebar);
+  // Bound once, not per render: a click inside the dropdown reaches here too,
+  // hence the .multiselect check — otherwise opening one would shut it again.
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.multiselect')) closeMultiSelects();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMultiSelects();
+  });
   boot();
 });

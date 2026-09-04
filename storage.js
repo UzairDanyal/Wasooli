@@ -516,7 +516,7 @@ async function deleteExpenseCategory(id) {
 
 // -- Expenses --
 function listExpenses() {
-  return [...cache.expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return [...cache.expenses].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
 }
 
 async function addExpense({ date, amount, placeId, categoryId, bankId, notes }) {
@@ -561,7 +561,7 @@ async function deleteExpense(id) {
 
 // -- Transactions --
 function listTransactions() {
-  return [...cache.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return [...cache.transactions].sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt.localeCompare(a.createdAt));
 }
 
 async function addTransaction({ date, amount, profileId, type, bankId, notes }) {

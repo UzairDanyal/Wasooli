@@ -15,6 +15,8 @@
   --green-bg: #ecfdf3;
   --red: #dc2626;
   --red-bg: #fef2f2;
+  --featured-pos: #0a8f42;
+  --featured-neg: #c31d1d;
   --radius: 10px;
   /* categorical chart palette — fixed order, validated CVD-safe (dataviz skill) */
   --cat-1: #2a78d6;
@@ -183,6 +185,11 @@ button {
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
 
+/* Inline checkbox row — label sits beside the box, not stacked above it. */
+.field-check { justify-content: flex-end; }
+.field-check label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.field-check input[type="checkbox"] { width: auto; padding: 0; margin: 0; accent-color: var(--primary); cursor: pointer; }
+
 input, select, textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -215,10 +222,43 @@ input:focus, select:focus, textarea:focus {
   border-radius: var(--radius);
   padding: 18px;
 }
+/* Tiles that open a module on double-click. user-select stops the second click
+   of the pair from highlighting the figure underneath it. */
+.summary-card[data-nav] { cursor: pointer; user-select: none; transition: border-color 0.15s, transform 0.15s; }
+.summary-card[data-nav]:hover { border-color: var(--primary); transform: translateY(-2px); }
 .summary-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
 .summary-card .value { font-size: 24px; font-weight: 700; }
 .summary-card.green .value { color: var(--green); }
 .summary-card.red .value { color: var(--red); }
+
+/* Featured summary card — the figure the dashboard should land the eye on.
+   Tinted fill, a primary rail and an outsized value so it out-weighs the plain
+   cards beside it, without borrowing the net-worth card's full gradient.
+   Every colour is mixed from the existing tokens, so dark mode follows along.
+   Browsers without color-mix fall back to a plain card that still has the rail. */
+.summary-card.featured {
+  /* No flex override and padding-left trimmed by the 3px the thicker rail adds
+     (4px vs the 1px border elsewhere): the card must line up edge-for-edge and
+     text-for-text with "Owed to you" in the row below it. */
+  padding-left: 15px;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-left: 4px solid var(--primary);
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+.summary-card.featured .label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+}
+.summary-card.featured .value { font-size: 34px; line-height: 1.15; font-weight: 800; }
+/* Deeper than the flat --green/--red used on the small cards: at 34px on the
+   tinted fill those read washed out, and these clear 4.5:1 against it. */
+.summary-card.featured.pos .value { color: var(--featured-pos); }
+.summary-card.featured.neg .value { color: var(--featured-neg); }
 
 .net-worth-card {
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
@@ -244,7 +284,6 @@ input:focus, select:focus, textarea:focus {
 .balance-card .status { font-size: 12px; color: var(--text-muted); }
 .balance-card.owes-me { border-left: 3px solid var(--green); }
 .balance-card.i-owe { border-left: 3px solid var(--red); }
-.balance-card.settled { border-left: 3px solid var(--border); }
 
 .empty-state { color: var(--text-muted); text-align: center; padding: 40px 0; }
 
@@ -295,6 +334,79 @@ tfoot .total-value { color: var(--primary); font-size: 15px; font-weight: 700; }
 
 .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .filters select, .filters input { min-width: 140px; }
+
+/* ---- multi-select filter ---- */
+/* Styled to sit flush with the native selects and inputs in the same bar. */
+.multiselect { position: relative; min-width: 150px; }
+.ms-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.ms-toggle:hover { border-color: var(--primary); }
+.ms-toggle[aria-expanded="true"] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+.ms-toggle svg { flex-shrink: 0; color: var(--text-muted); }
+.ms-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A narrowed filter should look different from an untouched one at a glance. */
+.multiselect.active .ms-toggle { border-color: var(--primary); font-weight: 600; }
+
+.ms-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.45);
+}
+.ms-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ms-option:hover { background: var(--bg); }
+.ms-option input { width: auto; min-width: 0; margin: 0; padding: 0; accent-color: var(--primary); cursor: pointer; }
+.ms-empty { padding: 8px; font-size: 13px; color: var(--text-muted); }
+.ms-clear {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ms-clear:hover:not(:disabled) { color: var(--primary); }
+.ms-clear:disabled { opacity: 0.45; cursor: default; }
 
 .pagination { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 14px 20px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .pagination-info { font-size: 12px; color: var(--text-muted); margin-right: auto; }
@@ -367,6 +479,9 @@ tfoot .total-value { color: var(--primary); font-size: 15px; font-weight: 700; }
     --primary-hover: #1c9992;
     --green-bg: #10281c;
     --red-bg: #2c1414;
+    /* Inverted for the dark fill — the light-mode pair goes muddy on it. */
+    --featured-pos: #35d17e;
+    --featured-neg: #ff6f6f;
     --cat-1: #3987e5;
     --cat-2: #d95926;
     --cat-3: #199e70;
