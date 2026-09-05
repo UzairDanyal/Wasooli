@@ -143,12 +143,51 @@ function writeLocal(data) {
 
 // ---- public API ----
 
+// Feature-detects a Konto Cloud backend (the /api/data route from the
+// Cloudflare Worker in worker/index.js). A plain static server (e.g. `python3
+// -m http.server`, used for local dev per the README) has no such route and
+// answers 404, so this falls through to the existing fs/local flow below —
+// one codebase serves both local dev and the hosted deployment unchanged.
+// A 401 here should be rare: the Worker gates every page behind the login
+// cookie already, so an unauthenticated browser never gets this far — this
+// only fires if the session expired in the brief window between page load
+// and this fetch.
+async function tryRemoteInit() {
+  let res;
+  try {
+    res = await fetch('/api/data', { credentials: 'include' });
+  } catch {
+    return null;
+  }
+  if (res.status === 404) return null;
+  if (res.status === 401) {
+    window.location.href = '/login';
+    return { connected: false, mode: 'remote' };
+  }
+  if (!res.ok) return null;
+  const parsed = await res.json();
+  cache = coerceAmounts({ ...emptyData(), ...parsed });
+  mode = 'remote';
+  if (reconcileLoanLinkedBankTx()) await persist();
+  return { connected: true, mode: 'remote' };
+}
+
+async function logout() {
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+  } catch {}
+  window.location.href = '/login';
+}
+
 // Attempts silent restore (previously granted file handle, or localStorage).
 // Permission for a remembered handle resets to 'prompt' after a browser
 // restart and re-requesting it requires a user gesture, so this only ever
 // checks the current status (queryPermission) — never requests here.
 // Returns { connected: boolean, mode, needsReconnect?, fileName? }
 async function init() {
+  const remote = await tryRemoteInit();
+  if (remote) return remote;
+
   if (!supportsFS) {
     cache = readLocal();
     if (reconcileLoanLinkedBankTx()) await persist();
@@ -222,6 +261,20 @@ async function forget() {
 }
 
 async function persist() {
+  if (mode === 'remote') {
+    const res = await fetch('/api/data', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cache),
+    });
+    if (res.status === 401) {
+      window.location.href = '/login';
+      throw new Error('Session expired — please sign in again.');
+    }
+    if (!res.ok) throw new Error('Failed to save — check your connection and try again.');
+    return;
+  }
   if (mode === 'fs' && fileHandle) {
     await writeHandle(fileHandle, cache);
   } else {
@@ -748,6 +801,7 @@ window.Storage = {
   createNew,
   reconnect,
   forget,
+  logout,
   getMode,
   getFileName,
   CURRENCIES,

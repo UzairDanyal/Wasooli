@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Konto — Sign in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='2' width='20' height='20' rx='6' fill='%230e6e6a'/%3E%3Cpath d='M9 6v12M9 12l6-6M9 12l6 6' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --surface: #ffffff;
+    --border: #e5e1da;
+    --text: #211d18;
+    --text-muted: #6e6759;
+    --primary: #0e6e6a;
+    --primary-hover: #0b5d59;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+  }
+  .brand-heading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--primary);
+    margin: 0 0 8px;
+    font-size: 20px;
+  }
+  p { color: var(--text-muted); margin: 0 0 24px; line-height: 1.5; }
+  form { display: flex; flex-direction: column; gap: 10px; }
+  input[type="password"] {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 16px;
+    letter-spacing: 2px;
+    text-align: center;
+  }
+  input[type="password"]:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+  button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--primary-hover); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error {
+    display: none;
+    background: var(--red-bg);
+    color: var(--red);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .error.show { display: block; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 class="brand-heading">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="6"/><path d="M9 6v12M9 12l6-6M9 12l6 6"/></svg>
+      <span>Konto</span>
+    </h1>
+    <p>Enter your PIN to continue.</p>
+    <div id="error" class="error"></div>
+    <form id="login-form">
+      <input type="password" id="pin" inputmode="numeric" autocomplete="current-password" placeholder="PIN" required autofocus>
+      <button type="submit" id="submit">Unlock</button>
+    </form>
+  </div>
+  <script>
+    const form = document.getElementById('login-form');
+    const pinInput = document.getElementById('pin');
+    const submitBtn = document.getElementById('submit');
+    const errorEl = document.getElementById('error');
+
+    const redirectTarget = new URLSearchParams(location.search).get('next');
+    const safeNext = redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//') ? redirectTarget : '/';
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.classList.remove('show');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Checking…';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pinInput.value }),
+        });
+        if (res.ok) {
+          location.href = safeNext;
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        errorEl.textContent = data.error || 'Incorrect PIN.';
+        errorEl.classList.add('show');
+        pinInput.value = '';
+        pinInput.focus();
+      } catch {
+        errorEl.textContent = 'Network error — try again.';
+        errorEl.classList.add('show');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Unlock';
+      }
+    });
+  </script>
+</body>
+</html>

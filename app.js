@@ -387,9 +387,18 @@ function startApp() {
 }
 
 function updateStorageModeFooter() {
+  const mode = Storage.getMode();
+  const el = $('#storage-mode');
+  if (mode === 'remote') {
+    el.innerHTML = 'Synced (Konto Cloud) &middot; <a href="#" id="btn-sign-out">Sign out</a>';
+    $('#btn-sign-out').onclick = (e) => {
+      e.preventDefault();
+      Storage.logout();
+    };
+    return;
+  }
   const fileName = Storage.getFileName?.();
-  $('#storage-mode').textContent =
-    Storage.getMode() === 'fs' ? `Saving to ${fileName || 'local file'}` : 'Saving to browser storage';
+  el.textContent = mode === 'fs' ? `Saving to ${fileName || 'local file'}` : 'Saving to browser storage';
 }
 
 // ---------------- Navigation ----------------

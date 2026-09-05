@@ -1,0 +1,10 @@
+worker/
+wrangler.toml
+.wrangler/
+.git/
+.gitignore
+.assetsignore
+.claude/
+README.md
+db/
+loan-table.json

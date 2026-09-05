@@ -1,0 +1,8 @@
+worker/
+wrangler.toml
+.wrangler/
+.assetsignore
+.claude/
+README.md
+db/
+loan-table.json
