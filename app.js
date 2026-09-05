@@ -1159,7 +1159,7 @@ function renderExport() {
       <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn btn-primary" id="btn-export-json">Download JSON</button>
         <button class="btn" id="btn-export-csv">Download CSV</button>
-        ${Storage.getMode() === 'local' ? '<label class="btn" style="margin:0;">Import JSON<input type="file" id="import-json" accept="application/json" class="hidden"></label>' : ''}
+        ${['local', 'remote'].includes(Storage.getMode()) ? '<label class="btn" style="margin:0;">Import JSON<input type="file" id="import-json" accept="application/json" class="hidden"></label>' : ''}
       </div>
     </div>`;
 }
