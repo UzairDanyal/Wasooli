@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "public",
   "functions": {
     "api/gate.js": {
       "includeFiles": "{index.html,app.js,storage.js,style.css,login.html}"
