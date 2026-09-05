@@ -717,17 +717,6 @@ function renderBanks() {
       <h2>Banks</h2>
       <p class="view-sub">Accounts used to send or receive money — each one keeps its own balance and history.</p>
 
-      <div class="card" style="margin-bottom:20px;">
-        <form id="bank-form">
-          <div class="form-grid">
-            <div class="field"><label>Bank name</label><input type="text" name="name" required placeholder="e.g. HBL, Meezan, Cash" value="${editingBank ? esc(editingBank.name) : ''}"></div>
-            <div class="field"><label>Currency</label><select name="currency">${currencyOptionsHtml(editingBank?.currency || 'PKR')}</select></div>
-          </div>
-          ${submitBtn(!!editingBank, 'Add bank', false)}
-          ${editingBank ? '<button type="button" class="btn" id="btn-cancel-bank-edit">Cancel</button>' : ''}
-        </form>
-      </div>
-
       ${
         currencyTotals.length
           ? `<div class="summary-row" style="margin-bottom:20px;">
@@ -754,6 +743,17 @@ function renderBanks() {
           <tbody id="bank-rows">${rows}</tbody>
         </table>
         <div id="bank-pagination">${paginationBar('banks', total, page, totalPages)}</div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <form id="bank-form">
+          <div class="form-grid">
+            <div class="field"><label>Bank name</label><input type="text" name="name" required placeholder="e.g. HBL, Meezan, Cash" value="${editingBank ? esc(editingBank.name) : ''}"></div>
+            <div class="field"><label>Currency</label><select name="currency">${currencyOptionsHtml(editingBank?.currency || 'PKR')}</select></div>
+          </div>
+          ${submitBtn(!!editingBank, 'Add bank', false)}
+          ${editingBank ? '<button type="button" class="btn" id="btn-cancel-bank-edit">Cancel</button>' : ''}
+        </form>
       </div>
     </div>`;
 }
